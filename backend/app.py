@@ -8,6 +8,9 @@ import io
 import base64
 import secrets
 import uuid
+from webcam import CartTrackerWebcam 
+from firebase import FirebaseCartManager
+
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -68,6 +71,8 @@ def create_session():
     
     # Generate unique session ID
     session_id = f"session_{uuid.uuid4().hex[:12]}"
+
+    FirebaseCartManager().create_cart(session_id)
     
     # Generate pairing token
     pairing_token = generate_pairing_token()
@@ -127,6 +132,21 @@ def list_sessions():
     
     session_list = list(sessions.find(query, {"_id": 0}).limit(100))
     return jsonify({"sessions": session_list, "count": len(session_list)}), 200
+
+
+@app.route("/api/carts/<cart_id>/session", methods=["GET"])
+def get_current_session_for_cart(cart_id):
+    """Return the most recent active session for a given cart_id"""
+    session = sessions.find_one(
+        {"cart_id": cart_id, "status": "active"},
+        sort=[("created_at", -1)]  # latest active session
+    )
+
+    if not session:
+        return jsonify({"error": "No active session for this cart"}), 404
+
+    session.pop("_id", None)
+    return jsonify(session), 200
 
 
 @app.route("/api/sessions/<session_id>/checkout", methods=["PUT"])
@@ -500,6 +520,19 @@ def generate_pairing_qrcode(session_id):
         # Return as image file
         img_buffer.seek(0)
         return send_file(img_buffer, mimetype="image/png"), 200
+
+# ============================================================================
+# RUN WEBCAM API 
+# ============================================================================
+@app.route("/api/webcam/<session_id>", methods=["GET"])
+def run_webcam(session_id):
+    """Run the webcam object detection for a given session"""
+
+    detector = CartTrackerWebcam(sessionId=session_id)
+    detector.run()
+
+    return jsonify({"status": "webcam started", "session_id": session_id}), 200
+
 
 
 if __name__ == "__main__":
