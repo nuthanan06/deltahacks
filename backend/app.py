@@ -6,7 +6,6 @@ from config import MONGO_URI, DB_NAME, CONFIDENCE_THRESHOLD, FLASK_DEBUG
 import qrcode
 import io
 import base64
-import secrets
 import uuid
 from webcam import CartTrackerWebcam 
 from firebase import FirebaseCartManager
@@ -17,7 +16,6 @@ CORS(app)  # Enable CORS for all routes
 
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
-inventory = db.inventory
 sessions = db.sessions
 prices = db.prices  # Product price catalog
 
@@ -27,29 +25,16 @@ def now():
 
 
 # ============================================================================
-# PAIRING TOKEN UTILITIES
+# SESSION UTILITIES
 # ============================================================================
 
-PAIRING_TOKEN_EXPIRY_MINUTES = 10  # Tokens expire after 10 minutes
-
-def generate_pairing_token():
-    """Generate a secure, short-lived pairing token"""
-    return secrets.token_urlsafe(16)  # 16 bytes = 22 character URL-safe token
-
-def is_token_valid(token, expires_at):
-    """Check if a pairing token is still valid"""
-    if not expires_at:
-        return False
-    return datetime.utcnow() < expires_at
-
 def cleanup_expired_sessions():
-    """Clean up sessions with expired tokens that were never paired"""
-    expired_cutoff = now() - timedelta(minutes=PAIRING_TOKEN_EXPIRY_MINUTES)
+    """Clean up old sessions (optional cleanup function)"""
+    # Clean up active sessions older than 24 hours
+    expired_cutoff = now() - timedelta(hours=24)
     sessions.update_many(
         {
-            "status": "active",
-            "paired_at": {"$exists": False},
-            "token_expires_at": {"$lt": now()}
+            "status": "active"
         },
         {"$set": {"status": "expired"}}
     )
@@ -61,51 +46,22 @@ def cleanup_expired_sessions():
 
 @app.route("/api/sessions/", methods=["POST"])
 def create_session():
-    """Create a new shopping session and return pairing token for cart device"""
-    data = request.json or {}
-    cart_id = data.get("cart_id")
-    
-    # Generate session ID if not provided
-    if not cart_id:
-        cart_id = f"cart_{uuid.uuid4().hex[:12]}"
-    
+    """Create a new shopping session"""
     # Generate unique session ID
     session_id = f"session_{uuid.uuid4().hex[:12]}"
 
     FirebaseCartManager().create_cart(session_id)
     
-    # Generate pairing token
-    pairing_token = generate_pairing_token()
-    token_expires_at = now() + timedelta(minutes=PAIRING_TOKEN_EXPIRY_MINUTES)
-    
-    # Create session
+    # Create session - only session_id and status
     session_doc = {
         "session_id": session_id,
-        "cart_id": cart_id,
-        "pairing_token": pairing_token,
-        "token_expires_at": token_expires_at,
         "status": "active",
-        "created_at": now(),
-        # Phone pairing fields (set when paired)
-        "phone_id": None,
-        "paired_at": None,
     }
     sessions.insert_one(session_doc)
-    
-    # Create corresponding inventory
-    inventory.insert_one({
-        "session_id": session_id,
-        "items": [],
-        "total": 0.0,
-        "updated_at": now(),
-    })
     
     return jsonify({
         "status": "created",
         "session_id": session_id,
-        "pairing_token": pairing_token,
-        "token_expires_at": token_expires_at.isoformat(),
-        "cart_id": cart_id
     }), 201
 
 
@@ -122,13 +78,10 @@ def get_session(session_id):
 def list_sessions():
     """List all sessions (with optional filters)"""
     status = request.args.get("status")
-    user_id = request.args.get("user_id")
     
     query = {}
     if status:
         query["status"] = status
-    if user_id:
-        query["user_id"] = user_id
     
     session_list = list(sessions.find(query, {"_id": 0}).limit(100))
     return jsonify({"sessions": session_list, "count": len(session_list)}), 200
@@ -154,7 +107,7 @@ def checkout_session(session_id):
     """Checkout a session (mark as completed)"""
     result = sessions.update_one(
         {"session_id": session_id},
-        {"$set": {"status": "completed", "completed_at": now()}}
+        {"$set": {"status": "completed"}}
     )
     
     if result.matched_count == 0:
@@ -169,43 +122,23 @@ def checkout_session(session_id):
 
 @app.route("/api/pair", methods=["POST"])
 def pair_phone():
-    """Pair a phone with a cart session using pairing token"""
+    """Pair a phone with a cart session using session_id"""
     data = request.json
-    pairing_token = data.get("pairing_token")
-    phone_id = data.get("phone_id")  # Optional: identifier for the phone
+    session_id = data.get("session_id")
     
-    if not pairing_token:
-        return jsonify({"error": "pairing_token is required"}), 400
+    if not session_id:
+        return jsonify({"error": "session_id is required"}), 400
     
-    # Find session with this token
-    session = sessions.find_one({"pairing_token": pairing_token})
+    # Find session with this session_id
+    session = sessions.find_one({"session_id": session_id})
     
     if not session:
-        return jsonify({"error": "Invalid pairing token"}), 404
+        return jsonify({"error": "Session not found"}), 404
     
-    # Check if token is expired
-    if not is_token_valid(pairing_token, session.get("token_expires_at")):
-        return jsonify({"error": "Pairing token has expired"}), 410
-    
-    # Check if already paired
-    if session.get("paired_at"):
-        return jsonify({"error": "Session already paired"}), 409
-    
-    # Pair the phone to the session
-    sessions.update_one(
-        {"session_id": session["session_id"]},
-        {
-            "$set": {
-                "phone_id": phone_id or f"phone_{uuid.uuid4().hex[:12]}",
-                "paired_at": now()
-            }
-        }
-    )
-    
+    # Session exists, pairing successful (no data to store)
     return jsonify({
         "status": "paired",
-        "session_id": session["session_id"],
-        "cart_id": session.get("cart_id")
+        "session_id": session_id,
     }), 200
 
 
@@ -217,152 +150,10 @@ def get_pairing_status(session_id):
     if not session:
         return jsonify({"error": "Session not found"}), 404
     
-    is_paired = session.get("paired_at") is not None
-    token_valid = is_token_valid(session.get("pairing_token"), session.get("token_expires_at"))
-    
     return jsonify({
         "session_id": session_id,
-        "is_paired": is_paired,
-        "token_valid": token_valid,
-        "paired_at": session.get("paired_at").isoformat() if session.get("paired_at") else None,
-        "phone_id": session.get("phone_id")
+        "status": session.get("status"),
     }), 200
-
-
-# ============================================================================
-# INVENTORY API
-# ============================================================================
-
-@app.route("/api/inventory/<session_id>", methods=["GET"])
-def get_inventory(session_id):
-    """Get inventory for a session"""
-    inv = inventory.find_one({"session_id": session_id}, {"_id": 0})
-    if not inv:
-        return jsonify({"error": "Inventory not found"}), 404
-    return jsonify(inv), 200
-
-
-@app.route("/api/inventory/<session_id>/items", methods=["POST"])
-def add_item_to_inventory(session_id):
-    """Add an item to inventory"""
-    data = request.json
-    
-    if data.get("confidence", 1.0) < CONFIDENCE_THRESHOLD:
-        return jsonify({"status": "needs_confirmation"}), 200
-    
-    barcode = data.get("barcode")
-    if not barcode:
-        return jsonify({"error": "barcode is required"}), 400
-    
-    # Lookup price if not provided
-    item_price = data.get("price")
-    if not item_price:
-        price_doc = prices.find_one({"barcode": barcode})
-        if price_doc:
-            item_price = price_doc.get("price", 0.0)
-        else:
-            item_price = 0.0
-    
-    # Try to increment quantity if item exists
-    result = inventory.update_one(
-        {"session_id": session_id, "items.barcode": barcode},
-        {
-            "$inc": {"items.$.qty": 1},
-            "$set": {"updated_at": now()}
-        }
-    )
-    
-    # If item doesn't exist, add it
-    if result.matched_count == 0:
-        inventory.update_one(
-            {"session_id": session_id},
-            {
-                "$push": {
-                    "items": {
-                        "barcode": barcode,
-                        "name": data.get("name"),
-                        "qty": 1,
-                        "price": item_price,
-                    }
-                },
-                "$set": {"updated_at": now()}
-            }
-        )
-    
-    # Recalculate total
-    inv = inventory.find_one({"session_id": session_id})
-    if inv:
-        total = sum(item.get("price", 0) * item.get("qty", 0) for item in inv.get("items", []))
-        inventory.update_one(
-            {"session_id": session_id},
-            {"$set": {"total": total, "updated_at": now()}}
-        )
-    
-    return jsonify({"status": "added", "session_id": session_id}), 200
-
-
-@app.route("/api/inventory/<session_id>/items/<barcode>", methods=["PUT"])
-def update_inventory_item(session_id, barcode):
-    """Update an item in inventory (quantity, price, etc.)"""
-    data = request.json
-    
-    update_fields = {}
-    if "qty" in data:
-        update_fields["items.$.qty"] = data["qty"]
-    if "price" in data:
-        update_fields["items.$.price"] = data["price"]
-    if "name" in data:
-        update_fields["items.$.name"] = data["name"]
-    
-    if not update_fields:
-        return jsonify({"error": "No fields to update"}), 400
-    
-    update_fields["updated_at"] = now()
-    
-    result = inventory.update_one(
-        {"session_id": session_id, "items.barcode": barcode},
-        {"$set": update_fields}
-    )
-    
-    if result.matched_count == 0:
-        return jsonify({"error": "Item not found"}), 404
-    
-    # Recalculate total
-    inv = inventory.find_one({"session_id": session_id})
-    if inv:
-        total = sum(item.get("price", 0) * item.get("qty", 0) for item in inv.get("items", []))
-        inventory.update_one(
-            {"session_id": session_id},
-            {"$set": {"total": total, "updated_at": now()}}
-        )
-    
-    return jsonify({"status": "updated", "session_id": session_id, "barcode": barcode}), 200
-
-
-@app.route("/api/inventory/<session_id>/items/<barcode>", methods=["DELETE"])
-def remove_inventory_item(session_id, barcode):
-    """Remove an item from inventory"""
-    result = inventory.update_one(
-        {"session_id": session_id},
-        {
-            "$pull": {"items": {"barcode": barcode}},
-            "$set": {"updated_at": now()}
-        }
-    )
-    
-    if result.matched_count == 0:
-        return jsonify({"error": "Inventory not found"}), 404
-    
-    # Recalculate total
-    inv = inventory.find_one({"session_id": session_id})
-    if inv:
-        total = sum(item.get("price", 0) * item.get("qty", 0) for item in inv.get("items", []))
-        inventory.update_one(
-            {"session_id": session_id},
-            {"$set": {"total": total, "updated_at": now()}}
-        )
-    
-    return jsonify({"status": "removed", "session_id": session_id, "barcode": barcode}), 200
 
 
 # ============================================================================
@@ -465,37 +256,25 @@ def delete_price(barcode):
 
 @app.route("/api/sessions/<session_id>/qrcode", methods=["GET"])
 def generate_pairing_qrcode(session_id):
-    """Generate a QR code with pairing token for a session"""
+    """Generate a QR code with session_id for a session"""
     session = sessions.find_one({"session_id": session_id})
     
     if not session:
         return jsonify({"error": "Session not found"}), 404
-    
-    pairing_token = session.get("pairing_token")
-    if not pairing_token:
-        return jsonify({"error": "Session has no pairing token"}), 400
-    
-    # Check if already paired
-    if session.get("paired_at"):
-        return jsonify({"error": "Session already paired"}), 409
-    
-    # Check if token expired
-    if not is_token_valid(pairing_token, session.get("token_expires_at")):
-        return jsonify({"error": "Pairing token has expired"}), 410
     
     # Get optional parameters
     size = int(request.args.get("size", 10))
     border = int(request.args.get("border", 4))
     format_type = request.args.get("format", "base64")  # Default to base64 for API
     
-    # Create QR code with pairing token
+    # Create QR code with session_id
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
         box_size=size,
         border=border,
     )
-    qr.add_data(pairing_token)
+    qr.add_data(session_id)
     qr.make(fit=True)
     
     # Create image
@@ -512,14 +291,32 @@ def generate_pairing_qrcode(session_id):
         img_base64 = base64.b64encode(img_buffer.getvalue()).decode("utf-8")
         return jsonify({
             "session_id": session_id,
-            "pairing_token": pairing_token,
-            "token_expires_at": session.get("token_expires_at").isoformat(),
             "qr_code": f"data:image/png;base64,{img_base64}"
         }), 200
     else:
         # Return as image file
         img_buffer.seek(0)
         return send_file(img_buffer, mimetype="image/png"), 200
+
+# ============================================================================
+# CART ITEMS API
+# ============================================================================
+
+@app.route("/api/carts/<session_id>/items", methods=["GET"])
+def get_cart_items(session_id):
+    """Get all items in a cart by session_id"""
+    try:
+        manager = FirebaseCartManager()
+        items = manager.get_cart_items(session_id)
+        return jsonify({
+            "status": "success",
+            "session_id": session_id,
+            "items": items,
+            "count": len(items)
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 # ============================================================================
 # RUN WEBCAM API 
@@ -536,4 +333,6 @@ def run_webcam(session_id):
 
 
 if __name__ == "__main__":
-    app.run(debug=FLASK_DEBUG, port=5001)
+    # Use host='0.0.0.0' to allow connections from other devices on the network
+    # This is necessary when testing on physical devices
+    app.run(debug=FLASK_DEBUG, host='0.0.0.0', port=5001)

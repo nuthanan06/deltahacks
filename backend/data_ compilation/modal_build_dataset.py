@@ -276,5 +276,3 @@ def merge():
 #   modal volume get off-dataset-vol products.jsonl ./products.jsonl
 #   modal volume get off-dataset-vol images ./images --recursive
 #   modal volume get off-dataset-vol products_worker_*.jsonl ./worker_files/ --recursive
-
-#   modal volume get off-dataset-vol products.jsonl ./products.jsonl
