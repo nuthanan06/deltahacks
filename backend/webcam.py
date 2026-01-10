@@ -20,6 +20,10 @@ confirmed = set()
 last_y = {}
 direction_score = defaultdict(int)
 
+best_crop = {}
+best_area = defaultdict(int)
+
+
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -37,12 +41,19 @@ while True:
             continue
 
         # bounding box center Y
-        x1, y1, x2, y2 = box.xyxy[0]
-        center_y = int((y1 + y2) / 2)
+        # bounding box coords
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
+        area = (x2 - x1) * (y2 - y1)
+
+        # store best (largest) crop
+        if area > best_area[label]:
+            best_area[label] = area
+            best_crop[label] = frame[y1:y2, x1:x2].copy()
 
         detected_this_frame.add(label)
 
         # track direction
+        center_y = (y1 + y2) // 2
         if label in last_y:
             delta = center_y - last_y[label]
             direction_score[label] += delta
@@ -60,16 +71,24 @@ while True:
     for label in detected_this_frame:
         frame_counts[label] += 1
 
-        if frame_counts[label] >= FRAME_THRESHOLD:
-            if direction_score[label] > DIRECTION_THRESHOLD and label not in confirmed:
-                print(f"➕ Added to cart: {label}")
-                confirmed.add(label)
-                # add_to_cart(label)
+        
+    if frame_counts[label] >= FRAME_THRESHOLD:
+        if direction_score[label] > DIRECTION_THRESHOLD and label not in confirmed:
+            print(f"➕ Added to cart: {label}")
+            confirmed.add(label)
 
-            elif direction_score[label] < -DIRECTION_THRESHOLD and label in confirmed:
-                print(f"➖ Removed from cart: {label}")
-                confirmed.discard(label)
-                # remove_from_cart(label)
+            crop = best_crop.get(label)
+            if crop is not None:
+                cv2.imwrite(f"add_{label}.jpg", crop)
+                # send crop to CLIP here
+
+        elif direction_score[label] < -DIRECTION_THRESHOLD and label in confirmed:
+            print(f"➖ Removed from cart: {label}")
+            confirmed.discard(label)
+
+            crop = best_crop.get(label)
+            if crop is not None:
+                cv2.imwrite(f"remove_{label}.jpg", crop)
 
     annotated = r.plot()
     cv2.imshow("YOLOv8", annotated)
