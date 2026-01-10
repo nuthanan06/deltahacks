@@ -88,8 +88,8 @@ export default function CheckoutScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
-      <ThemedView style={styles.header}>
+    <View style={styles.container}>
+      <View style={styles.header}>
         <ThemedText type="title" style={styles.title}>
           Checkout
         </ThemedText>
@@ -98,10 +98,10 @@ export default function CheckoutScreen() {
             Session: {sessionId}
           </ThemedText>
         )}
-      </ThemedView>
+      </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <ThemedView style={styles.section}>
+        <View style={styles.section}>
           <ThemedText type="subtitle" style={styles.sectionTitle}>
             Order Summary
           </ThemedText>
@@ -119,9 +119,9 @@ export default function CheckoutScreen() {
               </ThemedText>
             </View>
           ))}
-        </ThemedView>
+        </View>
 
-        <ThemedView style={styles.section}>
+        <View style={styles.section}>
           <View style={styles.summaryRow}>
             <ThemedText>Subtotal:</ThemedText>
             <ThemedText>{formatPrice(getSubtotal())}</ThemedText>
@@ -140,16 +140,16 @@ export default function CheckoutScreen() {
               {formatPrice(getTotal())}
             </ThemedText>
           </View>
-        </ThemedView>
+        </View>
 
-        <ThemedView style={styles.noteSection}>
+        <View style={styles.noteSection}>
           <ThemedText style={styles.note}>
             Note: Payment processing is mocked. Stripe integration will be added here.
           </ThemedText>
-        </ThemedView>
+        </View>
       </ScrollView>
 
-      <ThemedView style={styles.footer}>
+      <View style={styles.footer}>
         <TouchableOpacity
           style={styles.paymentButton}
           onPress={handlePayment}
@@ -158,19 +158,21 @@ export default function CheckoutScreen() {
             Proceed with Payment
           </ThemedText>
         </TouchableOpacity>
-      </ThemedView>
-    </ThemedView>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#505066', //BASE COLOR
   },
   header: {
     padding: 20,
     paddingTop: 60,
     borderBottomWidth: 1,
+    backgroundColor: '#069e66',
     borderBottomColor: 'rgba(0,0,0,0.1)',
   },
   title: {
@@ -242,10 +244,10 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(0,0,0,0.1)',
   },
   paymentButton: {
-    backgroundColor: '#0a7ea4',
     paddingVertical: 16,
     borderRadius: 8,
     alignItems: 'center',
+    backgroundColor: '#eda70e',
   },
   paymentButtonText: {
     color: '#fff',
