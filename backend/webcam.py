@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 
 
-class CartTracker:
+class CartTrackerWebcam:
     """Tracks objects being added/removed from a shopping cart using YOLO detection and motion tracking."""
     
     def __init__(
@@ -164,5 +164,5 @@ class CartTracker:
 
 
 if __name__ == "__main__":
-    tracker = CartTracker()
+    tracker = CartTrackerWebcam()
     tracker.run()
