@@ -1,98 +1,146 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useState } from 'react';
+import { useRouter } from 'expo-router';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { useCart } from '@/contexts/CartContext';
 
-export default function HomeScreen() {
+/**
+ * NFC Scan Start Screen
+ * 
+ * This is the entry screen where users can tap a button to scan an NFC chip.
+ * When the scan succeeds, the app navigates to the scanned products screen.
+ * 
+ * TODO: Replace mockNfcScan with actual NFC scanning implementation:
+ * - Use expo-nfc-manager or similar library
+ * - Handle NFC permissions
+ * - Process NFC tag data
+ * - Trigger product recognition via backend API
+ */
+export default function NFCScanScreen() {
+  const router = useRouter();
+  const { addProduct } = useCart();
+  const [isScanning, setIsScanning] = useState(false);
+
+  /**
+   * Mock NFC scan function
+   * 
+   * TODO: Replace with real NFC scanning logic
+   * 1. Request NFC permissions
+   * 2. Start NFC scan session
+   * 3. Read NFC tag data
+   * 4. Send tag data to backend for product recognition
+   * 5. Backend returns product info (name, price, etc.)
+   */
+  const mockNfcScan = async (): Promise<void> => {
+    setIsScanning(true);
+    
+    // Simulate NFC scan delay (1-2 seconds)
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Mock NFC scan result - in real app, this would come from:
+    // 1. NFC tag read
+    // 2. Backend API call for product recognition
+    // 3. Firebase lookup for pricing
+    const mockProductData = {
+      id: `product-${Date.now()}`,
+      name: 'Organic Bananas',
+      price: 4.99,
+      quantity: 1,
+    };
+
+    // Add product to cart (would come from Firebase/backend in real app)
+    addProduct(mockProductData);
+
+    setIsScanning(false);
+    
+    // Navigate to scanned products screen
+    router.push('/(tabs)/products');
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
+    <ThemedView style={styles.container}>
+      <ThemedView style={styles.content}>
+        <ThemedText type="title" style={styles.title}>
+          NFC Scanner
         </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+        
+        <ThemedText style={styles.description}>
+          Tap the button below to scan an NFC chip and add products to your cart.
+        </ThemedText>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
+        <TouchableOpacity
+          style={[styles.scanButton, isScanning && styles.scanButtonDisabled]}
+          onPress={mockNfcScan}
+          disabled={isScanning}
+          activeOpacity={0.7}>
+          {isScanning ? (
+            <>
+              <ActivityIndicator color="#fff" style={styles.loader} />
+              <ThemedText style={styles.scanButtonText}>Scanning...</ThemedText>
+            </>
+          ) : (
+            <ThemedText style={styles.scanButtonText}>Scan NFC Chip</ThemedText>
+          )}
+        </TouchableOpacity>
+
+        <ThemedText style={styles.note}>
+          Note: This is a mock implementation. Real NFC scanning will be integrated here.
         </ThemedText>
       </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  container: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    padding: 20,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  title: {
+    marginBottom: 20,
+    textAlign: 'center',
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  description: {
+    textAlign: 'center',
+    marginBottom: 40,
+    paddingHorizontal: 20,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  scanButton: {
+    backgroundColor: '#0a7ea4',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+    minWidth: 200,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  scanButtonDisabled: {
+    opacity: 0.6,
+  },
+  scanButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  loader: {
+    marginRight: 10,
+  },
+  note: {
+    marginTop: 30,
+    fontSize: 12,
+    opacity: 0.6,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
 });
+
