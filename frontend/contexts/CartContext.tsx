@@ -11,6 +11,8 @@ export interface Product {
 // Cart context type
 interface CartContextType {
   products: Product[];
+  sessionId: string | null;
+  setSessionId: (sessionId: string | null) => void;
   addProduct: (product: Product) => void;
   updateProductQuantity: (id: string, quantity: number) => void;
   removeProduct: (id: string) => void;
@@ -27,6 +29,7 @@ const TAX_RATE = 0.13; // 13% tax
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const addProduct = (product: Product) => {
     setProducts((prev: Product[]) => {
@@ -78,6 +81,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
     <CartContext.Provider
       value={{
         products,
+        sessionId,
+        setSessionId,
         addProduct,
         updateProductQuantity,
         removeProduct,

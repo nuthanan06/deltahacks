@@ -26,7 +26,7 @@ import type { Product } from '@/contexts/CartContext';
  */
 export default function ProductsScreen() {
   const router = useRouter();
-  const { products, updateProductQuantity, removeProduct, getSubtotal } = useCart();
+  const { products, updateProductQuantity, removeProduct, getSubtotal, sessionId } = useCart();
 
   const handleCheckout = () => {
     if (products.length === 0) {
@@ -101,6 +101,11 @@ export default function ProductsScreen() {
         <ThemedText type="title" style={styles.title}>
           Your Cart
         </ThemedText>
+        {sessionId && (
+          <ThemedText style={styles.sessionId}>
+            Session: {sessionId}
+          </ThemedText>
+        )}
         <ThemedText style={styles.subtitle}>
           {products.length} {products.length === 1 ? 'item' : 'items'}
         </ThemedText>
@@ -156,6 +161,12 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(0,0,0,0.1)',
   },
   title: {
+    marginBottom: 4,
+  },
+  sessionId: {
+    fontSize: 12,
+    opacity: 0.7,
+    fontFamily: 'monospace',
     marginBottom: 4,
   },
   subtitle: {

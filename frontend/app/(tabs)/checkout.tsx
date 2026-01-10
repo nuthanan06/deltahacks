@@ -27,6 +27,7 @@ export default function CheckoutScreen() {
     getTax,
     getTotal,
     clearCart,
+    sessionId,
   } = useCart();
 
   const formatPrice = (price: number) => {
@@ -68,7 +69,7 @@ export default function CheckoutScreen() {
                     text: 'OK',
                     onPress: () => {
                       clearCart();
-                      router.push('/(tabs)/index');
+                      router.push("/(tabs)");
                     },
                   },
                 ]
@@ -92,6 +93,11 @@ export default function CheckoutScreen() {
         <ThemedText type="title" style={styles.title}>
           Checkout
         </ThemedText>
+        {sessionId && (
+          <ThemedText style={styles.sessionId}>
+            Session: {sessionId}
+          </ThemedText>
+        )}
       </ThemedView>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -169,6 +175,12 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: 4,
+  },
+  sessionId: {
+    fontSize: 12,
+    opacity: 0.7,
+    fontFamily: 'monospace',
+    marginTop: 4,
   },
   content: {
     flex: 1,
