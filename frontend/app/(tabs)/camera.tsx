@@ -25,15 +25,16 @@ export default function CameraScreen() {
   const [error, setError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const cameraRef = useRef<CameraView>(null);
-  const frameIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const frameIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
   const isCapturingRef = useRef<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
   const isStreamingRef = useRef<boolean>(false); // Use ref to avoid stale closure
 
-  // Frame capture rate: send 1 frame every ~50ms (20 FPS for faster capture)
-  const FRAME_INTERVAL_MS = 25;
+  // Frame capture rate: send 1 frame every ~5ms (200 FPS - very fast!)
+  // Note: Actual rate may be limited by camera hardware and processing time
+  const FRAME_INTERVAL_MS = 5;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -150,7 +151,7 @@ export default function CameraScreen() {
       }
       // Schedule retry only if still mounted and streaming
       if (isMountedRef.current && isStreamingRef.current) {
-        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS) as ReturnType<typeof setTimeout>;
       }
       return;
     }
@@ -159,13 +160,10 @@ export default function CameraScreen() {
       const now = Date.now();
       const timeSinceLastFrame = now - lastFrameTimeRef.current;
 
-      if (timeSinceLastFrame < FRAME_INTERVAL_MS) {
-        // Schedule next frame capture
-        if (isMountedRef.current && isStreamingRef.current) {
-          frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS - timeSinceLastFrame);
-        }
-        return;
-      }
+      // Skip the time check for faster capture - just capture immediately
+      // The interval will naturally throttle if capture takes too long
+      // Update last frame time to current time
+      lastFrameTimeRef.current = now;
 
       // Double-check camera ref is still valid
       if (!cameraRef.current || !isMountedRef.current) {
@@ -240,7 +238,7 @@ export default function CameraScreen() {
 
       // Schedule next frame capture only if still mounted and streaming
       if (isMountedRef.current && isStreamingRef.current) {
-        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS) as ReturnType<typeof setTimeout>;
       } else {
         console.log('Stopping capture loop - mounted:', isMountedRef.current, 'streaming:', isStreamingRef.current);
       }
@@ -258,7 +256,7 @@ export default function CameraScreen() {
       if (isMountedRef.current && isStreamingRef.current) {
         setError(`Capture error: ${errorMessage}`);
         // Continue trying even if one frame fails, but only if still mounted and streaming
-        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS) as ReturnType<typeof setTimeout>;
       } else {
         console.log('Stopping capture loop after error - mounted:', isMountedRef.current, 'streaming:', isStreamingRef.current);
       }
@@ -330,7 +328,7 @@ export default function CameraScreen() {
     return (
       <ThemedView style={styles.container}>
         <ThemedText style={styles.statusText}>No session ID available</ThemedText>
-        <TouchableOpacity style={styles.button} onPress={() => router.push('/(tabs)/')}>
+        <TouchableOpacity style={styles.button} onPress={() => router.push('/(tabs)' as any)}>
           <ThemedText style={styles.buttonText}>Go to Pairing</ThemedText>
         </TouchableOpacity>
       </ThemedView>
