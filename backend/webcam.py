@@ -401,7 +401,21 @@ class CartTrackerWebcam:
         if show_window:
             print("Press 'q' to quit")
         
+        frame_count = 0
         while self.running:
+            # Every 30 frames, check if the session still exists in Firebase
+            # If it's been deleted (checkout happened), stop the webcam
+            frame_count += 1
+            if frame_count % 30 == 0:
+                try:
+                    cart = self.manager.get_cart(self.sessionId)
+                    if cart is None:
+                        print(f"Session {self.sessionId} no longer exists in Firebase. Stopping webcam.")
+                        self.running = False
+                        break
+                except Exception as e:
+                    print(f"Error checking cart existence: {e}")
+            
             ret, frame = self.cap.read()
             if not ret:
                 break

@@ -138,13 +138,9 @@ def get_current_session_for_cart(cart_id):
 
 @app.route("/api/sessions/<session_id>/checkout", methods=["PUT"])
 def checkout_session(session_id):
-    """Checkout a session (mark as completed, stop webcam, and clean up Firebase)"""
-    # Stop the webcam if it's running
-    if session_id in active_webcams:
-        print(f"Stopping webcam for session: {session_id}")
-        active_webcams[session_id].stop()
-    
-    # Delete the cart from Firebase
+    """Checkout a session (mark as completed and clean up Firebase)"""
+    # Delete the cart from Firebase - this signals the webcam to stop
+    # The webcam checks every 30 frames if the session exists, and stops if not
     try:
         firebase_manager = FirebaseCartManager()
         firebase_manager.delete_cart(session_id)
