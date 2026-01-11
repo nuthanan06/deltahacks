@@ -205,36 +205,21 @@ export default function CameraScreen() {
         throw new Error('takePictureAsync not available on camera ref');
       }
       
-      // Capture the photo
-      console.log(`[${frameCountRef.current + 1}] Capturing photo...`);
-      const captureStartTime = Date.now();
+      // Capture photo without base64 - much faster! Get URI for binary JPEG
       photo = await captureMethod({
-        quality: 0.5,
-        base64: true,
-        skipProcessing: false,
+        quality: 0.3, // Lower quality for speed
+        base64: false, // No base64 encoding - much faster!
+        skipProcessing: true, // Skip processing for speed
       });
-      const captureTime = Date.now() - captureStartTime;
-      console.log(`[${frameCountRef.current + 1}] Photo captured in ${captureTime}ms:`, photo ? 'success' : 'failed');
-      if (photo && !photo.base64) {
-        console.warn('Photo captured but no base64 data!');
-      }
 
       isCapturingRef.current = false;
 
-      // Check if still mounted before processing result
-      if (!isMountedRef.current) {
-        console.log('Component unmounted during capture, discarding result');
-        return;
-      }
-
-      if (photo && photo.base64) {
-        // Send frame to backend
-        await sendFrameToBackend(photo.base64);
+      // Send binary JPEG immediately if we have URI
+      if (photo?.uri && isMountedRef.current && isStreamingRef.current) {
+        // Fire and forget - don't await for maximum speed
+        sendFrameToBackend(photo.uri).catch(() => {});
         frameCountRef.current += 1;
         lastFrameTimeRef.current = Date.now();
-        console.log(`Frame ${frameCountRef.current} sent successfully`);
-      } else {
-        console.warn('Photo captured but no base64 data');
       }
 
       // Schedule next frame capture immediately for maximum speed
@@ -266,40 +251,25 @@ export default function CameraScreen() {
     }
   };
 
-  const sendFrameToBackend = async (base64Image: string) => {
-    if (!sessionId) {
-      console.warn('No sessionId for sending frame');
-      return;
-    }
-
-    try {
-      const url = `${API_BASE_URL}/api/sessions/${sessionId}/frame`;
-      console.log('Sending frame to:', url);
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          image: `data:image/jpeg;base64,${base64Image}`,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.warn('Frame send failed:', response.status, errorData);
-        setError(`Send failed: ${response.status} - ${JSON.stringify(errorData)}`);
-      } else {
-        const data = await response.json().catch(() => ({}));
-        console.log('Frame sent successfully:', data);
-        setError(null); // Clear error on success
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error('Error sending frame to backend:', errorMessage);
-      setError(`Network error: ${errorMessage}`);
-    }
+  const sendFrameToBackend = async (imageUri: string) => {
+    // Send binary JPEG - much faster than base64!
+    if (!sessionId) return;
+    
+    // In React Native, use FormData for binary upload
+    // React Native will automatically set Content-Type with boundary
+    const formData = new FormData();
+    formData.append('image', {
+      uri: imageUri,
+      type: 'image/jpeg',
+      name: 'frame.jpg',
+    } as any);
+    
+    // Send binary JPEG via FormData - React Native handles binary encoding
+    // Don't set Content-Type header - React Native sets it automatically with boundary
+    fetch(`${API_BASE_URL}/api/sessions/${sessionId}/frame`, {
+      method: 'POST',
+      body: formData,
+    } as any).catch(() => {}); // Ignore errors for speed
   };
 
   const handleBackPress = () => {
@@ -395,48 +365,35 @@ export default function CameraScreen() {
                 try {
                   const camera = cameraRef.current as any;
                   
-                  // Check if camera is still valid
                   if (!camera) {
                     setError('Camera ref is null');
                     return;
                   }
                   
-                  let photo = null;
+                  let captureMethod = camera?.takePictureAsync || camera?._cameraRef?.current?.takePictureAsync || camera?._cameraRef?.takePictureAsync;
                   
-                  if (typeof camera.takePictureAsync === 'function') {
-                    photo = await camera.takePictureAsync({ quality: 0.5, base64: true });
-                  } else if (camera._cameraRef && camera._cameraRef.current) {
-                    const nativeCamera = camera._cameraRef.current;
-                    if (nativeCamera && typeof nativeCamera.takePictureAsync === 'function') {
-                      photo = await nativeCamera.takePictureAsync({ quality: 0.5, base64: true });
-                    }
-                  }
-                  
-                  // Check if still mounted after async operation
-                  if (!isMountedRef.current) {
-                    console.log('Component unmounted during test capture');
+                  if (!captureMethod || typeof captureMethod !== 'function') {
+                    setError('takePictureAsync not available');
                     return;
                   }
                   
-                  if (photo?.base64) {
-                    console.log('Test capture successful, sending frame...');
-                    await sendFrameToBackend(photo.base64);
+                  // Capture without base64 for speed
+                  const photo = await captureMethod({ quality: 0.3, base64: false, skipProcessing: true });
+                  
+                  if (!isMountedRef.current) {
+                    return;
+                  }
+                  
+                  if (photo?.uri) {
+                    console.log('Test capture successful, sending binary frame...');
+                    await sendFrameToBackend(photo.uri);
                     frameCountRef.current += 1;
                   } else {
-                    console.error('Photo captured but no base64 data');
-                    setError('Photo captured but no base64 data');
+                    setError('Photo captured but no URI');
                   }
                 } catch (err) {
                   const errorMessage = err instanceof Error ? err.message : String(err);
-                  
-                  // Don't show error if component was unmounted
-                  if (errorMessage.includes('unmounted') || errorMessage.includes('unmount')) {
-                    console.log('Camera unmounted during test capture (expected)');
-                    return;
-                  }
-                  
-                  console.error('Test capture error:', errorMessage);
-                  if (isMountedRef.current) {
+                  if (!errorMessage.includes('unmounted') && isMountedRef.current) {
                     setError(`Test error: ${errorMessage}`);
                   }
                 }

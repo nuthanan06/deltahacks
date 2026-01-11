@@ -539,51 +539,49 @@ def receive_frame(session_id):
             return jsonify({"error": "Webcam is not in phone camera mode"}), 400
         
         # Get image data from request
-        # First try to get JSON data
-        data = request.get_json(silent=True)
+        # Priority: binary JPEG > multipart/form-data > base64 JSON (for backwards compatibility)
         
-        # Check if image is in JSON data
-        if data and 'image' in data:
-            # Decode base64 image
-            image_data = data['image']
-            if isinstance(image_data, str):
-                if image_data.startswith('data:image'):
-                    # Remove data URL prefix
-                    image_data = image_data.split(',')[1]
-                try:
-                    image_bytes = base64.b64decode(image_data)
-                    # Convert to numpy array
-                    nparr = np.frombuffer(image_bytes, np.uint8)
-                    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    if frame is not None:
-                        detector.add_frame_from_phone(frame)
-                        print(f"Successfully decoded and queued frame for session: {session_id}")
-                        return jsonify({"status": "frame_received"}), 200
-                    else:
-                        print(f"Failed to decode image for session: {session_id}")
-                        return jsonify({"error": "Failed to decode image"}), 400
-                except Exception as e:
-                    print(f"Error decoding base64 image: {e}")
-                    return jsonify({"error": f"Failed to decode base64 image: {str(e)}"}), 400
-            else:
-                return jsonify({"error": "Image data must be a string"}), 400
+        # First, try to get binary JPEG data directly from request body
+        content_type = request.content_type or ''
+        if 'image/jpeg' in content_type or 'image/jpg' in content_type:
+            # Binary JPEG data in request body
+            image_bytes = request.data
+            if image_bytes:
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    detector.add_frame_from_phone(frame)
+                    return jsonify({"status": "frame_received"}), 200
+                else:
+                    return jsonify({"error": "Failed to decode binary JPEG"}), 400
         
         # Handle multipart/form-data file upload
         if 'image' in request.files:
             file = request.files['image']
-            if file.filename == '':
-                return jsonify({"error": "No file selected"}), 400
-            
-            # Read image file
-            image_bytes = file.read()
-            nparr = np.frombuffer(image_bytes, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            
-            if frame is not None:
-                detector.add_frame_from_phone(frame)
-                return jsonify({"status": "frame_received"}), 200
-            else:
-                return jsonify({"error": "Failed to decode image"}), 400
+            if file.filename:
+                image_bytes = file.read()
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    detector.add_frame_from_phone(frame)
+                    return jsonify({"status": "frame_received"}), 200
+        
+        # Fallback: Try base64 JSON (for backwards compatibility)
+        data = request.get_json(silent=True)
+        if data and 'image' in data:
+            image_data = data['image']
+            if isinstance(image_data, str):
+                if image_data.startswith('data:image'):
+                    image_data = image_data.split(',')[1]
+                try:
+                    image_bytes = base64.b64decode(image_data)
+                    nparr = np.frombuffer(image_bytes, np.uint8)
+                    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if frame is not None:
+                        detector.add_frame_from_phone(frame)
+                        return jsonify({"status": "frame_received"}), 200
+                except Exception as e:
+                    print(f"Error decoding base64: {e}")
         
         return jsonify({"error": "No image data provided"}), 400
         
