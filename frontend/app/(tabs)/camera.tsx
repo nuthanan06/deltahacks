@@ -207,7 +207,7 @@ export default function CameraScreen() {
       
       // Capture photo without base64 - much faster! Get URI for binary JPEG
       photo = await captureMethod({
-        quality: 0.3, // Lower quality for speed
+        quality: 0.15, // Lower quality for speed
         base64: false, // No base64 encoding - much faster!
         skipProcessing: true, // Skip processing for speed
       });
@@ -311,6 +311,8 @@ export default function CameraScreen() {
   return (
     <View style={styles.container}>
       <CameraView
+
+        ratio="16:9"
         ref={cameraRef}
         style={styles.camera}
         facing="back"
@@ -378,7 +380,7 @@ export default function CameraScreen() {
                   }
                   
                   // Capture without base64 for speed
-                  const photo = await captureMethod({ quality: 0.3, base64: false, skipProcessing: true });
+                  const photo = await captureMethod({ quality: 0.15, base64: false, skipProcessing: true });
                   
                   if (!isMountedRef.current) {
                     return;
