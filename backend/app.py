@@ -496,11 +496,20 @@ def receive_frame(session_id):
         if session_id not in active_webcams:
             print(f"WARNING: No active webcam for session {session_id}")
             print(f"Active webcams: {list(active_webcams.keys())}")
+            
+            # Check if session is completed - don't restart if it is
+            session = sessions.find_one({"session_id": session_id})
+            if session and session.get("status") == "completed":
+                print(f"Session {session_id} is completed - not auto-starting webcam")
+                return jsonify({
+                    "error": "Session is completed",
+                    "session_id": session_id
+                }), 410  # 410 Gone - resource is no longer available
+            
             # Try to start it automatically (no pairing required)
             print(f"Attempting to auto-start webcam for session {session_id}")
             
             # Ensure session exists in MongoDB (create if it doesn't)
-            session = sessions.find_one({"session_id": session_id})
             if not session:
                 print(f"Session {session_id} not found in MongoDB, creating it...")
                 try:
