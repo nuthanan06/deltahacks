@@ -35,6 +35,7 @@ export default function QRCodeScreen() {
   const [lastScannedId, setLastScannedId] = useState<string>('');
   const alertShownRef = useRef<string>(''); // Track which session ID we've shown alert for
   const [permission, requestPermission] = useCameraPermissions();
+  const pairingCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleImACart = async (): Promise<void> => {
     setIsLoading(true);
