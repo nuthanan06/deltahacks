@@ -271,8 +271,12 @@ export default function CameraScreen() {
       
       // Check if session has been completed (checkout happened)
       if (response.status === 410) {
-        console.log('Session completed - stopping camera stream');
+        console.log('Session completed - stopping camera stream and navigating back');
         stopStreaming();
+        // Navigate back to scan area
+        if (isMountedRef.current) {
+          router.push('/(tabs)');
+        }
         return;
       }
     } catch (err) {

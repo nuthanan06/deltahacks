@@ -32,6 +32,7 @@ export default function CheckoutScreen() {
     getTotal,
     clearCart,
     sessionId,
+    setSessionId,
   } = useCart();
 
   // Get total price from Firebase
@@ -140,7 +141,8 @@ export default function CheckoutScreen() {
                     text: 'OK',
                     onPress: () => {
                       clearCart();
-                      router.push("/(tabs)");
+                      setSessionId(null); // Clear session ID
+                      router.push("/(tabs)"); // Navigate back to scan area
                     },
                   },
                 ]
