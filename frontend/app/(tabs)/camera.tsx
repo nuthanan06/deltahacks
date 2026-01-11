@@ -32,9 +32,10 @@ export default function CameraScreen() {
   const isMountedRef = useRef<boolean>(true);
   const isStreamingRef = useRef<boolean>(false); // Use ref to avoid stale closure
 
-  // Frame capture rate: send 1 frame every ~5ms (200 FPS - very fast!)
-  // Note: Actual rate may be limited by camera hardware and processing time
-  const FRAME_INTERVAL_MS = 5;
+  // Frame capture rate: 0ms = immediate capture (maximum possible speed!)
+  // The code will attempt to capture as fast as the camera hardware allows
+  // Actual rate limited by: camera hardware, takePictureAsync processing, network speed
+  const FRAME_INTERVAL_MS = 0;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -149,9 +150,9 @@ export default function CameraScreen() {
       if (isCapturingRef.current) {
         console.log('Already capturing, skipping this cycle');
       }
-      // Schedule retry only if still mounted and streaming
+      // Schedule retry immediately for maximum speed
       if (isMountedRef.current && isStreamingRef.current) {
-        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS) as ReturnType<typeof setTimeout>;
+        frameIntervalRef.current = setTimeout(captureAndSendFrame, 0) as ReturnType<typeof setTimeout>;
       }
       return;
     }
@@ -236,9 +237,11 @@ export default function CameraScreen() {
         console.warn('Photo captured but no base64 data');
       }
 
-      // Schedule next frame capture only if still mounted and streaming
+      // Schedule next frame capture immediately for maximum speed
+      // Use setImmediate or setTimeout(0) for fastest possible capture
       if (isMountedRef.current && isStreamingRef.current) {
-        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS) as ReturnType<typeof setTimeout>;
+        // Use 0ms timeout for immediate capture attempt
+        frameIntervalRef.current = setTimeout(captureAndSendFrame, 0) as ReturnType<typeof setTimeout>;
       } else {
         console.log('Stopping capture loop - mounted:', isMountedRef.current, 'streaming:', isStreamingRef.current);
       }
@@ -255,8 +258,8 @@ export default function CameraScreen() {
       console.error('Error capturing frame:', errorMessage);
       if (isMountedRef.current && isStreamingRef.current) {
         setError(`Capture error: ${errorMessage}`);
-        // Continue trying even if one frame fails, but only if still mounted and streaming
-        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS) as ReturnType<typeof setTimeout>;
+        // Continue trying immediately for maximum speed
+        frameIntervalRef.current = setTimeout(captureAndSendFrame, 0) as ReturnType<typeof setTimeout>;
       } else {
         console.log('Stopping capture loop after error - mounted:', isMountedRef.current, 'streaming:', isStreamingRef.current);
       }
