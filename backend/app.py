@@ -139,26 +139,39 @@ def get_current_session_for_cart(cart_id):
 @app.route("/api/sessions/<session_id>/checkout", methods=["PUT"])
 def checkout_session(session_id):
     """Checkout a session (mark as completed and clean up Firebase)"""
+    print(f"\n=== CHECKOUT REQUEST for session: {session_id} ===")
+    
     # Delete the cart from Firebase - this signals the webcam to stop
     # The webcam checks every 30 frames if the session exists, and stops if not
+    delete_success = False
     try:
         firebase_manager = FirebaseCartManager()
-        firebase_manager.delete_cart(session_id)
-        print(f"Deleted Firebase cart for session: {session_id}")
+        delete_success = firebase_manager.delete_cart(session_id)
+        print(f"✓ Deleted Firebase cart for session: {session_id} (success={delete_success})")
     except Exception as e:
-        print(f"Error deleting Firebase cart: {e}")
-        # Don't fail checkout if Firebase deletion fails
+        print(f"✗ Error deleting Firebase cart: {e}")
+        import traceback
+        traceback.print_exc()
     
     # Mark session as completed in MongoDB
-    result = sessions.update_one(
-        {"session_id": session_id},
-        {"$set": {"status": "completed"}}
-    )
+    try:
+        result = sessions.update_one(
+            {"session_id": session_id},
+            {"$set": {"status": "completed"}}
+        )
+        print(f"✓ Updated MongoDB session status: matched={result.matched_count}, modified={result.modified_count}")
+        
+        if result.matched_count == 0:
+            print(f"✗ Session not found in MongoDB: {session_id}")
+            return jsonify({"error": "Session not found"}), 404
+    except Exception as e:
+        print(f"✗ Error updating MongoDB session: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
     
-    if result.matched_count == 0:
-        return jsonify({"error": "Session not found"}), 404
-    
-    return jsonify({"status": "checked_out", "session_id": session_id}), 200
+    print(f"=== CHECKOUT COMPLETE for session: {session_id} ===\n")
+    return jsonify({"status": "checked_out", "session_id": session_id, "firebase_deleted": delete_success}), 200
 
 
 # ============================================================================

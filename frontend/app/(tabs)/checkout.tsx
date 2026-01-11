@@ -52,17 +52,28 @@ export default function CheckoutScreen() {
    */
   const handlePayment = async () => {
     try {
+      console.warn('🔴 handlePayment: Starting payment process');
+      
       // Call backend to stop webcam and mark session as completed
       if (sessionId) {
         try {
+          console.warn(`🟡 handlePayment: Calling checkout endpoint for sessionId: ${sessionId}`);
           const API_BASE_URL = 'http://localhost:5001';
-          await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/checkout`, {
+          const checkoutUrl = `${API_BASE_URL}/api/sessions/${sessionId}/checkout`;
+          console.warn(`🟡 handlePayment: URL: ${checkoutUrl}`);
+          
+          const response = await fetch(checkoutUrl, {
             method: 'PUT',
           });
-          console.log('Session checkout complete, webcam stopped');
+          console.warn(`🟡 handlePayment: Response status: ${response.status}`);
+          
+          const data = await response.json();
+          console.warn('✅ handlePayment: Session checkout complete, response:', data);
         } catch (error) {
-          console.error('Error calling checkout endpoint:', error);
+          console.error('❌ handlePayment: Error calling checkout endpoint:', error);
         }
+      } else {
+        console.warn('⚠️ handlePayment: No sessionId available');
       }
       
       // Mock payment processing delay
