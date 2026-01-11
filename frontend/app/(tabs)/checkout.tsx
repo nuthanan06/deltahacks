@@ -80,7 +80,7 @@ export default function CheckoutScreen() {
       } else {
         Alert.alert('Payment Failed', result.error || 'Something went wrong. Please try again.');
       }
-    try {
+  
       // Call backend to stop webcam and mark session as completed
       if (sessionId) {
         try {
@@ -93,37 +93,6 @@ export default function CheckoutScreen() {
           console.error('Error calling checkout endpoint:', error);
         }
       }
-      
-      // Mock payment processing delay
-      Alert.alert(
-        'Processing Payment',
-        'This is a placeholder. Real Stripe integration will be added here.',
-        [
-          {
-            text: 'Simulate Success',
-            onPress: () => {
-              // Mock successful payment
-              Alert.alert(
-                'Payment Successful!',
-                `Your order total of ${formatPrice(getTotal())} has been processed.`,
-                [
-                  {
-                    text: 'OK',
-                    onPress: () => {
-                      clearCart();
-                      router.push("/(tabs)");
-                    },
-                  },
-                ]
-              );
-            },
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-        ]
-      );
     } catch (error) {
       console.error('Payment error:', error);
       Alert.alert(
@@ -132,7 +101,6 @@ export default function CheckoutScreen() {
       );
     }
   };
-  
 
   return (
     <View style={styles.container}>

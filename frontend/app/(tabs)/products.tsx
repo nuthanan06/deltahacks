@@ -192,7 +192,7 @@ export default function ProductsScreen() {
       {products.length === 0 ? (
         <View style={styles.emptyContainer}>
           <ThemedText style={styles.emptyText}>
-            Your cart is empty. Pair a phoen with a shopping cart to begin scanning items.
+            Your cart is empty. Pair a phone with a shopping cart to begin scanning items.
           </ThemedText>
         </View>
       ) : (
