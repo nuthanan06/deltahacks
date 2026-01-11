@@ -184,6 +184,34 @@ class FirebaseCartManager:
         
         return normalized
     
+    def _normalize_product_name(self, product_name: str) -> str:
+        """
+        Normalize product name for matching (used for grouping items by embedding product name).
+        More aggressive normalization than label normalization.
+        
+        Examples:
+        - 'Coca-Cola 2L' -> 'coca_cola_2l'
+        - 'Banana Organic' -> 'banana_organic'
+        - 'Apple Red Delicious' -> 'apple_red_delicious'
+        """
+        import re
+        if not product_name:
+            return ''
+        
+        # Convert to lowercase
+        normalized = product_name.lower().strip()
+        
+        # Remove special characters, keep only alphanumeric and spaces
+        normalized = re.sub(r'[^a-z0-9\s]', '', normalized)
+        
+        # Replace multiple spaces with single space
+        normalized = re.sub(r'\s+', ' ', normalized)
+        
+        # Replace spaces with underscores for consistency
+        normalized = normalized.replace(' ', '_').strip('_')
+        
+        return normalized
+    
     # ==================== CART ITEMS OPERATIONS ====================
     
     def add_item(self, session_id: str, label: str, image_path: Optional[str] = None, image_url: Optional[str] = None,
@@ -221,14 +249,16 @@ class FirebaseCartManager:
         
         items = cart.get('items', [])
         item_found = False
-        normalized_label = self._normalize_label(label)
         
-        # Check if item already exists (by normalized label first to group same products, then by barcode for exact match)
+        # Normalize product name for matching (primary grouping key)
+        normalized_product_name = self._normalize_product_name(product_name or label.title())
+        
+        # Check if item already exists - prioritize product_name from embedding
         for i, item in enumerate(items):
-            # Priority 1: Match by normalized label (groups same products even with different barcodes)
-            item_label = item.get('label', '')
-            normalized_item_label = self._normalize_label(item_label)
-            if normalized_label == normalized_item_label:
+            # Priority 1: Match by product_name (groups items by embedding product name)
+            item_product_name = item.get('product_name', '')
+            normalized_item_product_name = self._normalize_product_name(item_product_name)
+            if normalized_product_name == normalized_item_product_name and normalized_product_name:
                 item_found = True
                 old_quantity = items[i].get('quantity', 1)
                 # Increment quantity
@@ -237,7 +267,7 @@ class FirebaseCartManager:
                 items[i]['action'] = 'add'
                 items[i]['sound_trigger'] = 'increase'  # Signal frontend to play increase sound
                 items[i]['quantity_changed'] = True
-                print(f"🔊 Sound trigger: INCREASE - {label} quantity: {old_quantity} -> {old_quantity + 1}")
+                print(f"🔊 Sound trigger: INCREASE - {product_name} (product_name match) quantity: {old_quantity} -> {old_quantity + 1}")
                 break
             # Priority 2: Match by barcode if both have barcodes AND they match (for exact same product)
             elif barcode and item.get('barcode') == barcode:
@@ -249,8 +279,24 @@ class FirebaseCartManager:
                 items[i]['action'] = 'add'
                 items[i]['sound_trigger'] = 'increase'  # Signal frontend to play increase sound
                 items[i]['quantity_changed'] = True
-                print(f"🔊 Sound trigger: INCREASE - {label} (barcode match) quantity: {old_quantity} -> {old_quantity + 1}")
+                print(f"🔊 Sound trigger: INCREASE - {product_name} (barcode match) quantity: {old_quantity} -> {old_quantity + 1}")
                 break
+            # Priority 3: Fallback to normalized label matching
+            elif not product_name or product_name == label.title():
+                item_label = item.get('label', '')
+                normalized_label = self._normalize_label(label)
+                normalized_item_label = self._normalize_label(item_label)
+                if normalized_label == normalized_item_label:
+                    item_found = True
+                    old_quantity = items[i].get('quantity', 1)
+                    # Increment quantity
+                    items[i]['quantity'] = old_quantity + 1
+                    items[i]['updated_at'] = datetime.now().isoformat()
+                    items[i]['action'] = 'add'
+                    items[i]['sound_trigger'] = 'increase'
+                    items[i]['quantity_changed'] = True
+                    print(f"🔊 Sound trigger: INCREASE - {label} (label match) quantity: {old_quantity} -> {old_quantity + 1}")
+                    break
         
         # If item not found, create new item with quantity 1
         if not item_found:
@@ -318,34 +364,45 @@ class FirebaseCartManager:
         items = cart['items']
         item_found = False
         item_price = price or 0.0
-        normalized_label = self._normalize_label(label)
         
-        # Find the item (by normalized label first to group same products, then by barcode for exact match)
-        for i, item in enumerate(items):
-            # Priority 1: Match by normalized label (groups same products even with different barcodes)
-            item_label = item.get('label', '')
-            normalized_item_label = self._normalize_label(item_label)
-            if normalized_label == normalized_item_label:
-                item_found = True
-                current_quantity = item.get('quantity', 1)
-                item_price = item.get('price', price or 0.0)
-                
-                # Decrement quantity
-                if current_quantity > 1:
-                    items[i]['quantity'] = current_quantity - 1
-                    items[i]['updated_at'] = datetime.now().isoformat()
-                    items[i]['action'] = 'delete'
-                    items[i]['sound_trigger'] = 'decrease'  # Signal frontend to play decrease sound
-                    items[i]['quantity_changed'] = True
-                    print(f"🔊 Sound trigger: DECREASE - {label} quantity: {current_quantity} -> {current_quantity - 1}")
-                else:
-                    # Remove item if quantity reaches 0
-                    items[i]['sound_trigger'] = 'decrease'  # Signal frontend to play decrease sound
-                    items[i]['quantity_changed'] = True
-                    print(f"🔊 Sound trigger: DECREASE - {label} quantity: {current_quantity} -> 0 (removed)")
-                    items.pop(i)
-                
+        # Try to find product_name from existing items with same label
+        product_name_to_match = None
+        for item in items:
+            if item.get('label') == label:
+                product_name_to_match = item.get('product_name')
                 break
+        
+        # Normalize product name for matching (primary grouping key)
+        if product_name_to_match:
+            normalized_product_name = self._normalize_product_name(product_name_to_match)
+        else:
+            normalized_product_name = None
+        
+        # Find the item - prioritize product_name matching
+        for i, item in enumerate(items):
+            # Priority 1: Match by product_name (groups items by embedding product name)
+            if normalized_product_name:
+                item_product_name = item.get('product_name', '')
+                normalized_item_product_name = self._normalize_product_name(item_product_name)
+                if normalized_product_name == normalized_item_product_name and normalized_item_product_name:
+                    item_found = True
+                    current_quantity = item.get('quantity', 1)
+                    item_price = item.get('price', price or 0.0)
+                    
+                    # Decrement quantity
+                    if current_quantity > 1:
+                        items[i]['quantity'] = current_quantity - 1
+                        items[i]['updated_at'] = datetime.now().isoformat()
+                        items[i]['action'] = 'delete'
+                        items[i]['sound_trigger'] = 'decrease'
+                        items[i]['quantity_changed'] = True
+                        print(f"🔊 Sound trigger: DECREASE - {item.get('product_name', label)} (product_name match) quantity: {current_quantity} -> {current_quantity - 1}")
+                    else:
+                        items[i]['sound_trigger'] = 'decrease'
+                        items[i]['quantity_changed'] = True
+                        print(f"🔊 Sound trigger: DECREASE - {item.get('product_name', label)} (product_name match) quantity: {current_quantity} -> 0 (removed)")
+                        items.pop(i)
+                    break
             # Priority 2: Match by barcode if both have barcodes (for exact same product)
             elif barcode and item.get('barcode') == barcode:
                 item_found = True
@@ -357,17 +414,39 @@ class FirebaseCartManager:
                     items[i]['quantity'] = current_quantity - 1
                     items[i]['updated_at'] = datetime.now().isoformat()
                     items[i]['action'] = 'delete'
-                    items[i]['sound_trigger'] = 'decrease'  # Signal frontend to play decrease sound
+                    items[i]['sound_trigger'] = 'decrease'
                     items[i]['quantity_changed'] = True
-                    print(f"🔊 Sound trigger: DECREASE - {label} (barcode match) quantity: {current_quantity} -> {current_quantity - 1}")
+                    print(f"🔊 Sound trigger: DECREASE - {item.get('product_name', label)} (barcode match) quantity: {current_quantity} -> {current_quantity - 1}")
                 else:
-                    # Remove item if quantity reaches 0
-                    items[i]['sound_trigger'] = 'decrease'  # Signal frontend to play decrease sound
+                    items[i]['sound_trigger'] = 'decrease'
                     items[i]['quantity_changed'] = True
-                    print(f"🔊 Sound trigger: DECREASE - {label} (barcode match) quantity: {current_quantity} -> 0 (removed)")
+                    print(f"🔊 Sound trigger: DECREASE - {item.get('product_name', label)} (barcode match) quantity: {current_quantity} -> 0 (removed)")
                     items.pop(i)
-                
                 break
+            # Priority 3: Fallback to normalized label matching
+            else:
+                item_label = item.get('label', '')
+                normalized_label = self._normalize_label(label)
+                normalized_item_label = self._normalize_label(item_label)
+                if normalized_label == normalized_item_label:
+                    item_found = True
+                    current_quantity = item.get('quantity', 1)
+                    item_price = item.get('price', price or 0.0)
+                    
+                    # Decrement quantity
+                    if current_quantity > 1:
+                        items[i]['quantity'] = current_quantity - 1
+                        items[i]['updated_at'] = datetime.now().isoformat()
+                        items[i]['action'] = 'delete'
+                        items[i]['sound_trigger'] = 'decrease'
+                        items[i]['quantity_changed'] = True
+                        print(f"🔊 Sound trigger: DECREASE - {label} (label match) quantity: {current_quantity} -> {current_quantity - 1}")
+                    else:
+                        items[i]['sound_trigger'] = 'decrease'
+                        items[i]['quantity_changed'] = True
+                        print(f"🔊 Sound trigger: DECREASE - {label} (label match) quantity: {current_quantity} -> 0 (removed)")
+                        items.pop(i)
+                    break
         
         if not item_found:
             return f"{label}_not_found"

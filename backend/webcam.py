@@ -224,27 +224,43 @@ class CartTrackerWebcam:
     #=============================
     # Firebase interaction methods
     #=============================
-    def get_barcode_from_image(self, image_path: str):
-        """Query image to get barcode using CLIP similarity search."""
+    def get_product_from_image(self, image_path: str):
+        """Query image to get product info using CLIP similarity search.
+        
+        Returns:
+            dict with keys: barcode, name, brand, score, or None if no match
+        """
         if query_image is None:
-            print("Warning: query_image not available, skipping barcode lookup")
+            print("Warning: query_image not available, skipping product lookup")
             return None
         
         try:
-            print(f"Querying image for barcode: {image_path}")
+            print(f"Querying image for product: {image_path}")
             results = query_image(image_path, top_k=1)
             if results and len(results) > 0:
-                barcode = results[0].get('barcode')
-                score = results[0].get('score', 0)
-                name = results[0].get('name', 'Unknown')
-                print(f"  Found match: barcode={barcode}, name={name}, score={score:.3f}")
-                return barcode
+                result = results[0]
+                barcode = result.get('barcode')
+                name = result.get('name', 'Unknown')
+                brand = result.get('brand', '')
+                score = result.get('score', 0)
+                print(f"  Found match: barcode={barcode}, name={name}, brand={brand}, score={score:.3f}")
+                return {
+                    'barcode': barcode,
+                    'name': name,
+                    'brand': brand,
+                    'score': score
+                }
             else:
                 print("  No matches found in product database")
                 return None
         except Exception as e:
             print(f"Error querying image: {e}")
             return None
+    
+    def get_barcode_from_image(self, image_path: str):
+        """Query image to get barcode using CLIP similarity search (deprecated - use get_product_from_image)."""
+        product_info = self.get_product_from_image(image_path)
+        return product_info.get('barcode') if product_info else None
     
     def get_price_from_api(self, barcode: str):
         """Get price from API endpoint by barcode."""
@@ -318,42 +334,50 @@ class CartTrackerWebcam:
     def add_item_to_firebase(self, label, image_path=None, image_url=None):
         """
         Add confirmed item to Firebase cart.
-        Queries image for barcode, gets price from API, and handles quantity updates.
-        Always uses product_name from MongoDB prices collection when available.
+        Uses CLIP embedding to get product name and groups items by product name.
+        Queries image for product info, gets price from API, and handles quantity updates.
         """
         barcode = None
         price = 0.0
         product_name = label.title()  # Default fallback: first letter of each word capitalized
+        embedding_product_name = None  # Product name from embedding (top match)
         
-        # Query image for barcode if image path is provided
+        # Query image for product info using CLIP embedding if image path is provided
         if image_path and os.path.exists(image_path):
-            barcode = self.get_barcode_from_image(image_path)
-            
-            # Get price and product name from API using barcode
-            if barcode:
-                price, api_product_name = self.get_price_from_api(barcode)
+            product_info = self.get_product_from_image(image_path)
+            if product_info:
+                barcode = product_info.get('barcode')
+                embedding_product_name = product_info.get('name')  # Use product name from embedding
+                print(f"  Using product name from embedding: {embedding_product_name}")
                 
-                # Always use product name from MongoDB if available
-                if api_product_name:
-                    product_name = api_product_name
+                # Get price and product name from API using barcode
+                if barcode:
+                    price, api_product_name = self.get_price_from_api(barcode)
+                    
+                    # Prefer embedding product name, but use API name if embedding name is generic
+                    if embedding_product_name and embedding_product_name != 'Unknown':
+                        product_name = embedding_product_name
+                    elif api_product_name:
+                        product_name = api_product_name
         
         # If no barcode found or no price found by barcode, try querying by label
         if price == 0.0 or not barcode:
             label_price, label_product_name = self.get_price_by_label_from_api(label)
             if label_price > 0:
                 price = label_price
-                # Always use product name from MongoDB when available
-                if label_product_name:
+                # Use label product name only if we don't have embedding name
+                if label_product_name and not embedding_product_name:
                     product_name = label_product_name
         
         # Add item to Firebase (will increment quantity if item already exists)
+        # Group by product_name from embedding as primary key
         try:
             item_id = self.manager.add_item(
                 session_id=self.sessionId,
                 label=label,
                 image_url=image_url,
                 price=price,
-                product_name=product_name,
+                product_name=product_name,  # This will be used for grouping
                 confidence=1.0,
                 barcode=barcode
             )
