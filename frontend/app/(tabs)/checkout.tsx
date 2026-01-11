@@ -52,6 +52,19 @@ export default function CheckoutScreen() {
    */
   const handlePayment = async () => {
     try {
+      // Call backend to stop webcam and mark session as completed
+      if (sessionId) {
+        try {
+          const API_BASE_URL = 'http://localhost:5001';
+          await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/checkout`, {
+            method: 'PUT',
+          });
+          console.log('Session checkout complete, webcam stopped');
+        } catch (error) {
+          console.error('Error calling checkout endpoint:', error);
+        }
+      }
+      
       // Mock payment processing delay
       Alert.alert(
         'Processing Payment',

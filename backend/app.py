@@ -15,6 +15,9 @@ from firebase import FirebaseCartManager
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
+# Track active webcam threads by session_id
+active_webcams = {}
+
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
 sessions = db.sessions
@@ -35,12 +38,18 @@ def start_webcam_for_session(session_id):
         try:
             print(f"Starting webcam for session: {session_id}")
             detector = CartTrackerWebcam(sessionId=session_id)
+            # Store the detector instance so we can stop it later
+            active_webcams[session_id] = detector
             print(f"Webcam initialized, starting detection loop...")
             detector.run()
         except Exception as e:
             print(f"ERROR: Webcam failed for session {session_id}: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            # Clean up from active list when done
+            if session_id in active_webcams:
+                del active_webcams[session_id]
     
     # Run webcam in background thread so API responds immediately
     thread = threading.Thread(target=detector_thread, daemon=True)
@@ -129,7 +138,22 @@ def get_current_session_for_cart(cart_id):
 
 @app.route("/api/sessions/<session_id>/checkout", methods=["PUT"])
 def checkout_session(session_id):
-    """Checkout a session (mark as completed)"""
+    """Checkout a session (mark as completed, stop webcam, and clean up Firebase)"""
+    # Stop the webcam if it's running
+    if session_id in active_webcams:
+        print(f"Stopping webcam for session: {session_id}")
+        active_webcams[session_id].stop()
+    
+    # Delete the cart from Firebase
+    try:
+        firebase_manager = FirebaseCartManager()
+        firebase_manager.delete_cart(session_id)
+        print(f"Deleted Firebase cart for session: {session_id}")
+    except Exception as e:
+        print(f"Error deleting Firebase cart: {e}")
+        # Don't fail checkout if Firebase deletion fails
+    
+    # Mark session as completed in MongoDB
     result = sessions.update_one(
         {"session_id": session_id},
         {"$set": {"status": "completed"}}

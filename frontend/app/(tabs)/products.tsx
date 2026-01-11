@@ -92,11 +92,25 @@ export default function ProductsScreen() {
     };
   }, [sessionId, setProducts]);
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (products.length === 0) {
       Alert.alert('Empty Cart', 'Please scan some products before checkout.');
       return;
     }
+    
+    // Call backend to mark session as completed and stop webcam
+    if (sessionId) {
+      try {
+        const API_BASE_URL = 'http://localhost:5001';
+        await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/checkout`, {
+          method: 'PUT',
+        });
+        console.log('Webcam stopped for session:', sessionId);
+      } catch (error) {
+        console.error('Error stopping webcam:', error);
+      }
+    }
+    
     router.push('/(tabs)/checkout');
   };
 

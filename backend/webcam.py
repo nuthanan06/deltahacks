@@ -396,11 +396,12 @@ class CartTrackerWebcam:
         Args:
             show_window: If True, display OpenCV window (requires GUI). Default False for Flask background threads.
         """
+        self.running = True
         print(f"Starting cart tracker. Output folder: {self.output_folder}")
         if show_window:
             print("Press 'q' to quit")
         
-        while True:
+        while self.running:
             ret, frame = self.cap.read()
             if not ret:
                 break
@@ -419,6 +420,11 @@ class CartTrackerWebcam:
                     break
         
         self.cleanup()
+    
+    def stop(self):
+        """Stop the webcam loop."""
+        print(f"Stopping cart tracker for session: {self.sessionId}")
+        self.running = False
     
     def cleanup(self):
         """Release resources."""
