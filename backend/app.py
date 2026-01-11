@@ -12,6 +12,7 @@ import numpy as np
 import cv2
 from webcam import CartTrackerWebcam 
 from firebase import FirebaseCartManager
+import certifi
 
 
 app = Flask(__name__)
@@ -20,7 +21,7 @@ CORS(app)  # Enable CORS for all routes
 # Track active webcam threads by session_id
 active_webcams = {}
 
-client = MongoClient(MONGO_URI)
+client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client[DB_NAME]
 sessions = db.sessions
 prices = db.prices  # Product price catalog
