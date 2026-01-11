@@ -31,8 +31,8 @@ export default function CameraScreen() {
   const isCapturingRef = useRef<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
 
-  // Frame capture rate: send 1 frame every ~200ms (5 FPS to reduce bandwidth)
-  const FRAME_INTERVAL_MS = 200;
+  // Frame capture rate: send 1 frame every ~100ms (10 FPS)
+  const FRAME_INTERVAL_MS = 100;
 
   useEffect(() => {
     isMountedRef.current = true;
