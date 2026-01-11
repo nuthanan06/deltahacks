@@ -263,10 +263,22 @@ export default function CameraScreen() {
     
     // Send binary JPEG via FormData - React Native handles binary encoding
     // Don't set Content-Type header - React Native sets it automatically with boundary
-    fetch(`${API_BASE_URL}/api/sessions/${sessionId}/frame`, {
-      method: 'POST',
-      body: formData,
-    } as any).catch(() => {}); // Ignore errors for speed
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/frame`, {
+        method: 'POST',
+        body: formData,
+      } as any);
+      
+      // Check if session has been completed (checkout happened)
+      if (response.status === 410) {
+        console.log('Session completed - stopping camera stream');
+        stopStreaming();
+        return;
+      }
+    } catch (err) {
+      // Ignore network errors for speed, but log session completion
+      console.error('Frame send error:', err);
+    }
   };
 
   const handleBackPress = () => {
