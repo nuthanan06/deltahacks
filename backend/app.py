@@ -8,6 +8,8 @@ import io
 import base64
 import uuid
 import threading
+import numpy as np
+import cv2
 from webcam import CartTrackerWebcam 
 from firebase import FirebaseCartManager
 
@@ -32,12 +34,18 @@ def now():
 # WEBCAM UTILITIES
 # ============================================================================
 
-def start_webcam_for_session(session_id):
-    """Start the webcam detector in a background thread"""
+def start_webcam_for_session(session_id, use_phone_camera=True):
+    """Start the webcam detector in a background thread
+    
+    Args:
+        session_id: The session ID to track
+        use_phone_camera: If True, use phone camera mode (receive frames via API). 
+                         If False, use local webcam.
+    """
     def detector_thread():
         try:
-            print(f"Starting webcam for session: {session_id}")
-            detector = CartTrackerWebcam(sessionId=session_id)
+            print(f"Starting webcam for session: {session_id} (phone_camera={use_phone_camera})")
+            detector = CartTrackerWebcam(sessionId=session_id, use_phone_camera=use_phone_camera)
             # Store the detector instance so we can stop it later
             active_webcams[session_id] = detector
             print(f"Webcam initialized, starting detection loop...")
@@ -203,8 +211,8 @@ def pair_phone():
         {"$set": {"paired": True, "paired_at": now()}}
     )
     
-    # Start the webcam for this session
-    start_webcam_for_session(session_id)
+    # Start the webcam for this session (using phone camera mode)
+    start_webcam_for_session(session_id, use_phone_camera=True)
     
     # Session exists, pairing successful
     return jsonify({
@@ -407,6 +415,72 @@ def get_cart_items(session_id):
             "count": len(items)
         }), 200
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# PHONE CAMERA FRAME API
+# ============================================================================
+
+@app.route("/api/sessions/<session_id>/frame", methods=["POST"])
+def receive_frame(session_id):
+    """Receive a frame from phone camera and add it to the webcam processing queue."""
+    try:
+        # Check if webcam is active for this session
+        if session_id not in active_webcams:
+            return jsonify({"error": "No active webcam for this session"}), 404
+        
+        detector = active_webcams[session_id]
+        
+        # Check if detector is in phone camera mode
+        if not detector.use_phone_camera:
+            return jsonify({"error": "Webcam is not in phone camera mode"}), 400
+        
+        # Get image data from request
+        if 'image' not in request.files and 'image' not in request.json:
+            # Try to get base64 encoded image
+            data = request.get_json()
+            if data and 'image' in data:
+                # Decode base64 image
+                image_data = data['image']
+                if image_data.startswith('data:image'):
+                    # Remove data URL prefix
+                    image_data = image_data.split(',')[1]
+                image_bytes = base64.b64decode(image_data)
+                # Convert to numpy array
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    detector.add_frame_from_phone(frame)
+                    return jsonify({"status": "frame_received"}), 200
+                else:
+                    return jsonify({"error": "Failed to decode image"}), 400
+            else:
+                return jsonify({"error": "No image data provided"}), 400
+        
+        # Handle multipart/form-data file upload
+        if 'image' in request.files:
+            file = request.files['image']
+            if file.filename == '':
+                return jsonify({"error": "No file selected"}), 400
+            
+            # Read image file
+            image_bytes = file.read()
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if frame is not None:
+                detector.add_frame_from_phone(frame)
+                return jsonify({"status": "frame_received"}), 200
+            else:
+                return jsonify({"error": "Failed to decode image"}), 400
+        
+        return jsonify({"error": "No image data provided"}), 400
+        
+    except Exception as e:
+        print(f"Error receiving frame: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 

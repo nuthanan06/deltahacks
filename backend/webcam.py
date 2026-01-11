@@ -1,5 +1,6 @@
 from ultralytics import YOLO
 import cv2
+import numpy as np
 from collections import defaultdict, deque
 import os
 import sys
@@ -30,17 +31,26 @@ class CartTrackerWebcam:
         self,
         sessionId,
         model_path="yolov8n.pt",
-        camera_index=0,
+        camera_index=None,
         output_folder="detected_items",
         frame_threshold=10,
         direction_threshold=30,
         history_size=50,
         recent_frames=19,
-        approved_labels=None
+        approved_labels=None,
+        use_phone_camera=False
     ):
         self.model = YOLO(model_path)
-        self.cap = cv2.VideoCapture(camera_index)
+        self.use_phone_camera = use_phone_camera
+        if not use_phone_camera and camera_index is not None:
+            self.cap = cv2.VideoCapture(camera_index)
+        else:
+            self.cap = None
         self.sessionId = sessionId
+        self.frame_queue = None
+        if use_phone_camera:
+            from queue import Queue
+            self.frame_queue = Queue()
         
         # Create output folder if it doesn't exist
         self.output_folder = output_folder
@@ -390,6 +400,13 @@ class CartTrackerWebcam:
         self.manager.remove_item(session_id=self.sessionId, label=label, barcode=barcode)
 
 
+    def add_frame_from_phone(self, frame_array):
+        """Add a frame received from phone camera to the processing queue."""
+        if self.frame_queue is not None:
+            self.frame_queue.put(frame_array)
+        else:
+            print("Warning: frame_queue not initialized. Phone camera mode not enabled.")
+    
     def run(self, show_window=False):
         """Main loop to process video frames.
         
@@ -398,6 +415,8 @@ class CartTrackerWebcam:
         """
         self.running = True
         print(f"Starting cart tracker. Output folder: {self.output_folder}")
+        if self.use_phone_camera:
+            print("Using phone camera mode - waiting for frames from API...")
         if show_window:
             print("Press 'q' to quit")
         
@@ -416,9 +435,31 @@ class CartTrackerWebcam:
                 except Exception as e:
                     print(f"Error checking cart existence: {e}")
             
-            ret, frame = self.cap.read()
-            if not ret:
-                break
+            # Get frame from either local webcam or phone camera queue
+            if self.use_phone_camera:
+                # Wait for frame from phone (with timeout to allow checking session)
+                try:
+                    frame_array = self.frame_queue.get(timeout=0.1)
+                    # Convert numpy array to OpenCV format
+                    if isinstance(frame_array, bytes):
+                        # Decode from bytes if needed
+                        frame = cv2.imdecode(np.frombuffer(frame_array, np.uint8), cv2.IMREAD_COLOR)
+                    elif isinstance(frame_array, np.ndarray):
+                        frame = frame_array
+                    else:
+                        print(f"Warning: Unexpected frame type: {type(frame_array)}")
+                        continue
+                except:
+                    # Timeout or empty queue - continue loop to check session
+                    continue
+            else:
+                # Use local webcam
+                if self.cap is None:
+                    print("Error: No camera available")
+                    break
+                ret, frame = self.cap.read()
+                if not ret:
+                    break
             
             detected_this_frame, detected_labels, results = self.process_frame(frame)
             self.update_tracking(detected_this_frame, detected_labels)
@@ -442,7 +483,8 @@ class CartTrackerWebcam:
     
     def cleanup(self):
         """Release resources."""
-        self.cap.release()
+        if self.cap is not None:
+            self.cap.release()
         if cv2.getWindowProperty("YOLOv8", cv2.WND_PROP_VISIBLE) >= 0:
             cv2.destroyAllWindows()
         print(f"\nFinal cart contents: {self.confirmed}")
