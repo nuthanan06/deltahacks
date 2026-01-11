@@ -100,6 +100,12 @@ export default function CameraScreen() {
       return;
     }
 
+    if (!cameraReady) {
+      console.log('Camera not ready, waiting...');
+      return;
+    }
+
+    console.log('Starting frame streaming...');
     setIsStreaming(true);
     setError(null);
     frameCountRef.current = 0;
@@ -167,41 +173,38 @@ export default function CameraScreen() {
         return;
       }
       
-      // Try accessing takePictureAsync - it should be directly on the ref
+      // Try accessing takePictureAsync - CameraView exposes it directly
+      let captureMethod = null;
+      
       if (camera && typeof camera.takePictureAsync === 'function') {
-        photo = await camera.takePictureAsync({
-          quality: 0.5,
-          base64: true,
-          skipProcessing: false,
-        });
+        captureMethod = camera.takePictureAsync.bind(camera);
       } 
       // Try accessing through _cameraRef if it exists
-      else if (camera && camera._cameraRef && camera._cameraRef.current) {
-        const nativeCamera = camera._cameraRef.current;
-        if (nativeCamera && typeof nativeCamera.takePictureAsync === 'function') {
-          photo = await nativeCamera.takePictureAsync({
-            quality: 0.5,
-            base64: true,
-            skipProcessing: false,
-          });
-        } else {
-          throw new Error('takePictureAsync not available on _cameraRef.current');
+      else if (camera && camera._cameraRef) {
+        const nativeRef = camera._cameraRef.current || camera._cameraRef;
+        if (nativeRef && typeof nativeRef.takePictureAsync === 'function') {
+          captureMethod = nativeRef.takePictureAsync.bind(nativeRef);
         }
       }
-      // Try calling as a method if it exists as a property
-      else if (camera && 'takePictureAsync' in camera) {
-        const takePicture = camera.takePictureAsync;
-        if (typeof takePicture === 'function') {
-          photo = await takePicture({
-            quality: 0.5,
-            base64: true,
-            skipProcessing: false,
-          });
-        } else {
-          throw new Error('takePictureAsync exists but is not a function');
-        }
-      } else {
+      
+      if (!captureMethod) {
+        console.error('takePictureAsync not found on camera ref');
+        console.log('Camera ref keys:', camera ? Object.keys(camera) : 'null');
         throw new Error('takePictureAsync not available on camera ref');
+      }
+      
+      // Capture the photo
+      console.log(`[${frameCountRef.current + 1}] Capturing photo...`);
+      const captureStartTime = Date.now();
+      photo = await captureMethod({
+        quality: 0.5,
+        base64: true,
+        skipProcessing: false,
+      });
+      const captureTime = Date.now() - captureStartTime;
+      console.log(`[${frameCountRef.current + 1}] Photo captured in ${captureTime}ms:`, photo ? 'success' : 'failed');
+      if (photo && !photo.base64) {
+        console.warn('Photo captured but no base64 data!');
       }
 
       isCapturingRef.current = false;
@@ -334,10 +337,16 @@ export default function CameraScreen() {
             if (camera) {
               console.log('takePictureAsync exists:', 'takePictureAsync' in camera);
               console.log('typeof takePictureAsync:', typeof camera.takePictureAsync);
+              if (camera._cameraRef) {
+                console.log('_cameraRef exists:', !!camera._cameraRef);
+                console.log('_cameraRef.current:', camera._cameraRef.current ? 'exists' : 'null');
+              }
             }
           }, 1000);
         }}>
-        <View style={styles.overlay}>
+        {/* Use absolute positioning to avoid children warning */}
+        <View style={StyleSheet.absoluteFill}>
+          <View style={styles.overlay}>
           <View style={styles.header}>
             <ThemedText style={styles.headerText}>
               Cart Tracking Active
@@ -427,6 +436,7 @@ export default function CameraScreen() {
               <ThemedText style={styles.backButtonText}>Back</ThemedText>
             </TouchableOpacity>
           </View>
+        </View>
         </View>
       </CameraView>
     </View>
