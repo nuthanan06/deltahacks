@@ -218,10 +218,12 @@ class FirebaseCartManager:
         
         # If item not found, create new item with quantity 1
         if not item_found:
+            # Format product name: first letter of each word capitalized, rest lowercase
+            formatted_product_name = (product_name.title() if product_name else label.title())
             item_data = {
                 'item_id': f"{label}_{datetime.now().timestamp()}",
                 'label': label,
-                'product_name': product_name or label.title(),
+                'product_name': formatted_product_name,
                 'price': price or 0.0,
                 'confidence': confidence,
                 'image_url': final_image_url,

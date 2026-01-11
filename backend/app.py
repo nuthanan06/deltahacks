@@ -223,6 +223,25 @@ def get_price(barcode):
     return jsonify(price_doc), 200
 
 
+@app.route("/api/prices/by-label/<label>", methods=["GET"])
+def get_price_by_label(label):
+    """Get price by product name or label (case-insensitive partial match)"""
+    # Try exact match first (case-insensitive)
+    price_doc = prices.find_one(
+        {"product_name": {"$regex": f"^{label}$", "$options": "i"}}, 
+        {"_id": 0}
+    )
+    # If not found, try partial match
+    if not price_doc:
+        price_doc = prices.find_one(
+            {"product_name": {"$regex": label, "$options": "i"}}, 
+            {"_id": 0}
+        )
+    if not price_doc:
+        return jsonify({"error": "Price not found"}), 404
+    return jsonify(price_doc), 200
+
+
 @app.route("/api/prices/", methods=["POST"])
 def create_price():
     """Create or update a price"""

@@ -237,7 +237,7 @@ class CartTrackerWebcam:
             return None
     
     def get_price_from_api(self, barcode: str):
-        """Get price from API endpoint."""
+        """Get price from API endpoint by barcode."""
         try:
             url = f"{self.api_base_url}/api/prices/{barcode}"
             response = requests.get(url, timeout=5)
@@ -245,8 +245,12 @@ class CartTrackerWebcam:
             if response.status_code == 200:
                 price_doc = response.json()
                 price = price_doc.get('price', 0.0)
-                print(f"  Found price via API: ${price:.2f}")
-                return float(price), price_doc.get('product_name')
+                product_name = price_doc.get('product_name')
+                # Format product name: first letter of each word capitalized, rest lowercase
+                if product_name:
+                    product_name = product_name.title()
+                print(f"  Found price via API: ${price:.2f}, product: {product_name}")
+                return float(price), product_name
             elif response.status_code == 404:
                 print(f"  No price found for barcode: {barcode}")
                 return 0.0, None
@@ -255,6 +259,31 @@ class CartTrackerWebcam:
                 return 0.0, None
         except requests.exceptions.RequestException as e:
             print(f"Error fetching price from API: {e}")
+            return 0.0, None
+    
+    def get_price_by_label_from_api(self, label: str):
+        """Get price from API endpoint by label/product name."""
+        try:
+            url = f"{self.api_base_url}/api/prices/by-label/{label}"
+            response = requests.get(url, timeout=5)
+            
+            if response.status_code == 200:
+                price_doc = response.json()
+                price = price_doc.get('price', 0.0)
+                product_name = price_doc.get('product_name')
+                # Format product name: first letter of each word capitalized, rest lowercase
+                if product_name:
+                    product_name = product_name.title()
+                print(f"  Found price via API (by label): ${price:.2f}, product: {product_name}")
+                return float(price), product_name
+            elif response.status_code == 404:
+                print(f"  No price found for label: {label}")
+                return 0.0, None
+            else:
+                print(f"  API error ({response.status_code}): {response.text}")
+                return 0.0, None
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching price from API by label: {e}")
             return 0.0, None
     
     def check_item_exists_in_cart(self, barcode: str):
@@ -280,10 +309,11 @@ class CartTrackerWebcam:
         """
         Add confirmed item to Firebase cart.
         Queries image for barcode, gets price from API, and handles quantity updates.
+        Always uses product_name from MongoDB prices collection when available.
         """
         barcode = None
         price = 0.0
-        product_name = label.capitalize()
+        product_name = label.title()  # Default fallback: first letter of each word capitalized
         
         # Query image for barcode if image path is provided
         if image_path and os.path.exists(image_path):
@@ -293,9 +323,18 @@ class CartTrackerWebcam:
             if barcode:
                 price, api_product_name = self.get_price_from_api(barcode)
                 
-                # Use product name from API if available
+                # Always use product name from MongoDB if available
                 if api_product_name:
                     product_name = api_product_name
+        
+        # If no barcode found or no price found by barcode, try querying by label
+        if price == 0.0 or not barcode:
+            label_price, label_product_name = self.get_price_by_label_from_api(label)
+            if label_price > 0:
+                price = label_price
+                # Always use product name from MongoDB when available
+                if label_product_name:
+                    product_name = label_product_name
         
         # Add item to Firebase (will increment quantity if item already exists)
         try:
