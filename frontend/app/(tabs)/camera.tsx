@@ -1,7 +1,7 @@
 import { StyleSheet, View, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { CameraView, useCameraPermissions, Camera } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -23,6 +23,7 @@ export default function CameraScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const frameIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
@@ -33,14 +34,14 @@ export default function CameraScreen() {
   const FRAME_INTERVAL_MS = 200;
 
   useEffect(() => {
-    if (sessionId && permission?.granted) {
+    if (sessionId && permission?.granted && cameraReady) {
       startStreaming();
     }
 
     return () => {
       stopStreaming();
     };
-  }, [sessionId, permission?.granted]);
+  }, [sessionId, permission?.granted, cameraReady]);
 
   const startStreaming = () => {
     if (!sessionId) {
@@ -71,7 +72,12 @@ export default function CameraScreen() {
   };
 
   const captureAndSendFrame = async () => {
-    if (!isStreaming || !sessionId || !cameraRef.current || isCapturingRef.current) {
+    if (!isStreaming || !sessionId || !cameraRef.current || isCapturingRef.current || !cameraReady) {
+      if (!cameraReady) {
+        console.log('Camera not ready yet, waiting...');
+      }
+      // Schedule retry
+      frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
       return;
     }
 
@@ -88,17 +94,47 @@ export default function CameraScreen() {
       isCapturingRef.current = true;
 
       // Take a picture using the camera ref
-      // CameraView in expo-camera v17 should support takePictureAsync
-      let photo;
-      if (cameraRef.current && 'takePictureAsync' in cameraRef.current) {
-        photo = await (cameraRef.current as any).takePictureAsync({
-          quality: 0.5, // Reduce quality to save bandwidth
+      // CameraView in expo-camera v17 exposes takePictureAsync through the ref
+      let photo = null;
+      const camera = cameraRef.current as any;
+      
+      // Try accessing takePictureAsync directly
+      if (camera && typeof camera.takePictureAsync === 'function') {
+        console.log('Using takePictureAsync from ref directly');
+        photo = await camera.takePictureAsync({
+          quality: 0.5,
           base64: true,
           skipProcessing: false,
         });
+      } 
+      // Try accessing through a method call
+      else if (camera && camera.current && typeof camera.current.takePictureAsync === 'function') {
+        console.log('Using takePictureAsync from ref.current');
+        photo = await camera.current.takePictureAsync({
+          quality: 0.5,
+          base64: true,
+          skipProcessing: false,
+        });
+      }
+      // Try calling as a method if it exists
+      else if (camera && 'takePictureAsync' in camera) {
+        console.log('Found takePictureAsync property, calling...');
+        const takePicture = camera.takePictureAsync;
+        if (typeof takePicture === 'function') {
+          photo = await takePicture({
+            quality: 0.5,
+            base64: true,
+            skipProcessing: false,
+          });
+        } else {
+          throw new Error('takePictureAsync exists but is not a function');
+        }
       } else {
-        // Fallback: try using Camera API directly
-        throw new Error('CameraView does not support takePictureAsync');
+        // Log available methods for debugging
+        console.log('Camera ref:', camera);
+        console.log('Camera ref type:', typeof camera);
+        console.log('Camera ref keys:', camera ? Object.keys(camera) : 'null');
+        throw new Error('takePictureAsync not available on camera ref. Available methods: ' + (camera ? Object.keys(camera).join(', ') : 'none'));
       }
 
       isCapturingRef.current = false;
@@ -108,23 +144,34 @@ export default function CameraScreen() {
         await sendFrameToBackend(photo.base64);
         frameCountRef.current += 1;
         lastFrameTimeRef.current = Date.now();
+        console.log(`Frame ${frameCountRef.current} sent successfully`);
+      } else {
+        console.warn('Photo captured but no base64 data');
       }
 
       // Schedule next frame capture
       frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
     } catch (err) {
       isCapturingRef.current = false;
-      console.error('Error capturing frame:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('Error capturing frame:', errorMessage);
+      setError(`Capture error: ${errorMessage}`);
       // Continue trying even if one frame fails
       frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
     }
   };
 
   const sendFrameToBackend = async (base64Image: string) => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      console.warn('No sessionId for sending frame');
+      return;
+    }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/frame`, {
+      const url = `${API_BASE_URL}/api/sessions/${sessionId}/frame`;
+      console.log('Sending frame to:', url);
+      
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -137,9 +184,16 @@ export default function CameraScreen() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.warn('Frame send failed:', response.status, errorData);
+        setError(`Send failed: ${response.status} - ${JSON.stringify(errorData)}`);
+      } else {
+        const data = await response.json().catch(() => ({}));
+        console.log('Frame sent successfully:', data);
+        setError(null); // Clear error on success
       }
     } catch (err) {
-      console.error('Error sending frame to backend:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('Error sending frame to backend:', errorMessage);
+      setError(`Network error: ${errorMessage}`);
     }
   };
 
@@ -185,7 +239,20 @@ export default function CameraScreen() {
         ref={cameraRef}
         style={styles.camera}
         facing="back"
-        mode="picture">
+        onCameraReady={() => {
+          console.log('Camera is ready');
+          setCameraReady(true);
+          // Log camera ref to see what's available
+          setTimeout(() => {
+            const camera = cameraRef.current as any;
+            console.log('Camera ref after ready:', camera);
+            console.log('Camera ref methods:', camera ? Object.keys(camera) : 'null');
+            if (camera) {
+              console.log('takePictureAsync exists:', 'takePictureAsync' in camera);
+              console.log('typeof takePictureAsync:', typeof camera.takePictureAsync);
+            }
+          }, 1000);
+        }}>
         <View style={styles.overlay}>
           <View style={styles.header}>
             <ThemedText style={styles.headerText}>
@@ -205,6 +272,32 @@ export default function CameraScreen() {
           )}
 
           <View style={styles.footer}>
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={async () => {
+                console.log('Manual test capture triggered');
+                try {
+                  const camera = cameraRef.current as any;
+                  console.log('Camera ref:', camera);
+                  console.log('Camera methods:', camera ? Object.keys(camera) : 'null');
+                  if (camera && typeof camera.takePictureAsync === 'function') {
+                    const photo = await camera.takePictureAsync({ quality: 0.5, base64: true });
+                    console.log('Test capture successful:', photo ? 'yes' : 'no');
+                    if (photo?.base64) {
+                      await sendFrameToBackend(photo.base64);
+                      frameCountRef.current += 1;
+                    }
+                  } else {
+                    console.error('takePictureAsync not available');
+                    setError('takePictureAsync not available on camera ref');
+                  }
+                } catch (err) {
+                  console.error('Test capture error:', err);
+                  setError(`Test error: ${err instanceof Error ? err.message : String(err)}`);
+                }
+              }}>
+              <ThemedText style={styles.testButtonText}>Test Capture</ThemedText>
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.productsButton}
               onPress={() => router.push('/(tabs)/products')}>
@@ -271,6 +364,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     alignItems: 'center',
     gap: 12,
+  },
+  testButton: {
+    backgroundColor: '#eda70e',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    minWidth: 120,
+    marginBottom: 8,
+  },
+  testButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   productsButton: {
     backgroundColor: '#069e66',
