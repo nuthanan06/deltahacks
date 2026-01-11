@@ -42,22 +42,42 @@ def start_webcam_for_session(session_id, use_phone_camera=True):
         use_phone_camera: If True, use phone camera mode (receive frames via API). 
                          If False, use local webcam.
     """
+    # Check if webcam already exists for this session
+    if session_id in active_webcams:
+        print(f"Webcam already exists for session: {session_id}, skipping start")
+        return
+    
+    # Create detector BEFORE starting thread to avoid race condition
+    # This ensures frames can be received immediately
+    try:
+        print(f"Creating webcam detector for session: {session_id} (phone_camera={use_phone_camera})")
+        detector = CartTrackerWebcam(sessionId=session_id, use_phone_camera=use_phone_camera)
+        # Store the detector instance immediately so frames can be received
+        active_webcams[session_id] = detector
+        print(f"✓ Webcam detector created and added to active_webcams for session: {session_id}")
+        print(f"✓ Active webcams now: {list(active_webcams.keys())}")
+        print(f"✓ Detector use_phone_camera: {detector.use_phone_camera}")
+        print(f"✓ Detector frame_queue exists: {detector.frame_queue is not None}")
+    except Exception as e:
+        print(f"✗ ERROR: Failed to create webcam detector for session {session_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        # Don't return silently - raise the exception so caller knows it failed
+        raise
+    
     def detector_thread():
         try:
-            print(f"Starting webcam for session: {session_id} (phone_camera={use_phone_camera})")
-            detector = CartTrackerWebcam(sessionId=session_id, use_phone_camera=use_phone_camera)
-            # Store the detector instance so we can stop it later
-            active_webcams[session_id] = detector
-            print(f"Webcam initialized, starting detection loop...")
+            print(f"Starting detection loop for session: {session_id}")
             detector.run()
         except Exception as e:
-            print(f"ERROR: Webcam failed for session {session_id}: {e}")
+            print(f"ERROR: Webcam detection loop failed for session {session_id}: {e}")
             import traceback
             traceback.print_exc()
         finally:
             # Clean up from active list when done
             if session_id in active_webcams:
                 del active_webcams[session_id]
+                print(f"Cleaned up webcam for session: {session_id}")
     
     # Run webcam in background thread so API responds immediately
     thread = threading.Thread(target=detector_thread, daemon=True)
@@ -422,41 +442,131 @@ def get_cart_items(session_id):
 # PHONE CAMERA FRAME API
 # ============================================================================
 
+@app.route("/api/sessions/<session_id>/webcam-status", methods=["GET"])
+def get_webcam_status(session_id):
+    """Check if webcam is active for a session."""
+    is_active = session_id in active_webcams
+    detector = active_webcams.get(session_id)
+    
+    return jsonify({
+        "session_id": session_id,
+        "is_active": is_active,
+        "use_phone_camera": detector.use_phone_camera if detector else None,
+        "active_sessions": list(active_webcams.keys())
+    }), 200
+
+
+@app.route("/api/sessions/<session_id>/start-webcam", methods=["POST"])
+def start_webcam_manual(session_id):
+    """Manually start webcam for a session (useful for debugging)."""
+    try:
+        if session_id in active_webcams:
+            return jsonify({
+                "status": "already_running",
+                "session_id": session_id
+            }), 200
+        
+        start_webcam_for_session(session_id, use_phone_camera=True)
+        return jsonify({
+            "status": "started",
+            "session_id": session_id
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/sessions/<session_id>/frame", methods=["POST"])
 def receive_frame(session_id):
     """Receive a frame from phone camera and add it to the webcam processing queue."""
     try:
         # Check if webcam is active for this session
         if session_id not in active_webcams:
-            return jsonify({"error": "No active webcam for this session"}), 404
+            print(f"WARNING: No active webcam for session {session_id}")
+            print(f"Active webcams: {list(active_webcams.keys())}")
+            # Try to start it automatically (no pairing required)
+            print(f"Attempting to auto-start webcam for session {session_id}")
+            
+            # Ensure session exists in MongoDB (create if it doesn't)
+            session = sessions.find_one({"session_id": session_id})
+            if not session:
+                print(f"Session {session_id} not found in MongoDB, creating it...")
+                try:
+                    # Create session if it doesn't exist
+                    FirebaseCartManager().create_cart(session_id)
+                    session_doc = {
+                        "session_id": session_id,
+                        "status": "active",
+                        "device_type": "phone",  # Created by phone when auto-starting
+                    }
+                    sessions.insert_one(session_doc)
+                    print(f"✓ Created session {session_id} in MongoDB")
+                except Exception as e:
+                    print(f"Warning: Failed to create session in MongoDB: {e}")
+                    # Continue anyway - webcam can work without MongoDB session
+            
+            try:
+                start_webcam_for_session(session_id, use_phone_camera=True)
+                # Wait a moment for detector to be created (synchronously)
+                import time
+                # Wait up to 2 seconds for detector to be created (YOLO model loading can take time)
+                for i in range(20):
+                    time.sleep(0.1)
+                    if session_id in active_webcams:
+                        print(f"✓ Webcam auto-started successfully for session {session_id} (after {i*0.1:.1f}s)")
+                        break
+                else:
+                    # Still not in active_webcams after waiting
+                    print(f"✗ Webcam auto-start failed - detector not created after 2 seconds")
+                    print(f"Active webcams after attempt: {list(active_webcams.keys())}")
+                    return jsonify({
+                        "error": "No active webcam for this session (auto-start failed - check backend logs for YOLO/Firebase errors)",
+                        "active_sessions": list(active_webcams.keys())
+                    }), 404
+            except Exception as e:
+                print(f"✗ Exception during auto-start webcam: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({
+                    "error": f"No active webcam for this session (auto-start exception: {str(e)})",
+                    "active_sessions": list(active_webcams.keys())
+                }), 404
         
         detector = active_webcams[session_id]
+        print(f"Received frame for session: {session_id}")
         
         # Check if detector is in phone camera mode
         if not detector.use_phone_camera:
             return jsonify({"error": "Webcam is not in phone camera mode"}), 400
         
         # Get image data from request
-        if 'image' not in request.files and 'image' not in request.json:
-            # Try to get base64 encoded image
-            data = request.get_json()
-            if data and 'image' in data:
-                # Decode base64 image
-                image_data = data['image']
+        # First try to get JSON data
+        data = request.get_json(silent=True)
+        
+        # Check if image is in JSON data
+        if data and 'image' in data:
+            # Decode base64 image
+            image_data = data['image']
+            if isinstance(image_data, str):
                 if image_data.startswith('data:image'):
                     # Remove data URL prefix
                     image_data = image_data.split(',')[1]
-                image_bytes = base64.b64decode(image_data)
-                # Convert to numpy array
-                nparr = np.frombuffer(image_bytes, np.uint8)
-                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                if frame is not None:
-                    detector.add_frame_from_phone(frame)
-                    return jsonify({"status": "frame_received"}), 200
-                else:
-                    return jsonify({"error": "Failed to decode image"}), 400
+                try:
+                    image_bytes = base64.b64decode(image_data)
+                    # Convert to numpy array
+                    nparr = np.frombuffer(image_bytes, np.uint8)
+                    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if frame is not None:
+                        detector.add_frame_from_phone(frame)
+                        print(f"Successfully decoded and queued frame for session: {session_id}")
+                        return jsonify({"status": "frame_received"}), 200
+                    else:
+                        print(f"Failed to decode image for session: {session_id}")
+                        return jsonify({"error": "Failed to decode image"}), 400
+                except Exception as e:
+                    print(f"Error decoding base64 image: {e}")
+                    return jsonify({"error": f"Failed to decode base64 image: {str(e)}"}), 400
             else:
-                return jsonify({"error": "No image data provided"}), 400
+                return jsonify({"error": "Image data must be a string"}), 400
         
         # Handle multipart/form-data file upload
         if 'image' in request.files:

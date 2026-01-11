@@ -29,19 +29,65 @@ export default function CameraScreen() {
   const lastFrameTimeRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
   const isCapturingRef = useRef<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
 
   // Frame capture rate: send 1 frame every ~200ms (5 FPS to reduce bandwidth)
   const FRAME_INTERVAL_MS = 200;
 
   useEffect(() => {
+    isMountedRef.current = true;
+    
     if (sessionId && permission?.granted && cameraReady) {
-      startStreaming();
+      // Try to ensure webcam is started, but don't block on it
+      // The backend will auto-start when frames arrive if needed
+      ensureWebcamStarted().catch((err) => {
+        console.warn('Webcam start check failed, will rely on auto-start:', err);
+      });
+      
+      // Start streaming after a short delay regardless
+      // The backend auto-starts webcam when frames arrive
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          startStreaming();
+        }
+      }, 500);
     }
 
     return () => {
+      isMountedRef.current = false;
       stopStreaming();
     };
   }, [sessionId, permission?.granted, cameraReady]);
+
+  const ensureWebcamStarted = async (): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+    
+    // Try to start webcam, but don't fail if it doesn't work
+    // The backend will auto-start when frames arrive
+    try {
+      const startResponse = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/start-webcam`, {
+        method: 'POST',
+      });
+      
+      if (startResponse.ok) {
+        const contentType = startResponse.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const startData = await startResponse.json().catch(() => ({}));
+          console.log('Webcam start response:', startData);
+        } else {
+          console.log('Webcam start request succeeded (non-JSON response)');
+        }
+      } else {
+        // Not a critical error - backend will auto-start when frames arrive
+        console.log('Webcam start request returned:', startResponse.status, '(will rely on auto-start)');
+      }
+    } catch (err) {
+      // Not a critical error - backend will auto-start when frames arrive
+      console.log('Webcam start request failed (will rely on auto-start):', err);
+    }
+  };
 
   const startStreaming = () => {
     if (!sessionId) {
@@ -65,6 +111,7 @@ export default function CameraScreen() {
 
   const stopStreaming = () => {
     setIsStreaming(false);
+    isCapturingRef.current = false;
     if (frameIntervalRef.current) {
       clearTimeout(frameIntervalRef.current);
       frameIntervalRef.current = null;
@@ -72,12 +119,20 @@ export default function CameraScreen() {
   };
 
   const captureAndSendFrame = async () => {
+    // Check if component is still mounted
+    if (!isMountedRef.current) {
+      console.log('Component unmounted, stopping frame capture');
+      return;
+    }
+
     if (!isStreaming || !sessionId || !cameraRef.current || isCapturingRef.current || !cameraReady) {
       if (!cameraReady) {
         console.log('Camera not ready yet, waiting...');
       }
-      // Schedule retry
-      frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+      // Schedule retry only if still mounted
+      if (isMountedRef.current) {
+        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+      }
       return;
     }
 
@@ -87,7 +142,15 @@ export default function CameraScreen() {
 
       if (timeSinceLastFrame < FRAME_INTERVAL_MS) {
         // Schedule next frame capture
-        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS - timeSinceLastFrame);
+        if (isMountedRef.current) {
+          frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS - timeSinceLastFrame);
+        }
+        return;
+      }
+
+      // Double-check camera ref is still valid
+      if (!cameraRef.current || !isMountedRef.current) {
+        console.log('Camera ref invalid or component unmounted, stopping');
         return;
       }
 
@@ -98,27 +161,35 @@ export default function CameraScreen() {
       let photo = null;
       const camera = cameraRef.current as any;
       
-      // Try accessing takePictureAsync directly
+      // Check again if camera is still valid
+      if (!camera || !isMountedRef.current) {
+        isCapturingRef.current = false;
+        return;
+      }
+      
+      // Try accessing takePictureAsync - it should be directly on the ref
       if (camera && typeof camera.takePictureAsync === 'function') {
-        console.log('Using takePictureAsync from ref directly');
         photo = await camera.takePictureAsync({
           quality: 0.5,
           base64: true,
           skipProcessing: false,
         });
       } 
-      // Try accessing through a method call
-      else if (camera && camera.current && typeof camera.current.takePictureAsync === 'function') {
-        console.log('Using takePictureAsync from ref.current');
-        photo = await camera.current.takePictureAsync({
-          quality: 0.5,
-          base64: true,
-          skipProcessing: false,
-        });
+      // Try accessing through _cameraRef if it exists
+      else if (camera && camera._cameraRef && camera._cameraRef.current) {
+        const nativeCamera = camera._cameraRef.current;
+        if (nativeCamera && typeof nativeCamera.takePictureAsync === 'function') {
+          photo = await nativeCamera.takePictureAsync({
+            quality: 0.5,
+            base64: true,
+            skipProcessing: false,
+          });
+        } else {
+          throw new Error('takePictureAsync not available on _cameraRef.current');
+        }
       }
-      // Try calling as a method if it exists
+      // Try calling as a method if it exists as a property
       else if (camera && 'takePictureAsync' in camera) {
-        console.log('Found takePictureAsync property, calling...');
         const takePicture = camera.takePictureAsync;
         if (typeof takePicture === 'function') {
           photo = await takePicture({
@@ -130,14 +201,16 @@ export default function CameraScreen() {
           throw new Error('takePictureAsync exists but is not a function');
         }
       } else {
-        // Log available methods for debugging
-        console.log('Camera ref:', camera);
-        console.log('Camera ref type:', typeof camera);
-        console.log('Camera ref keys:', camera ? Object.keys(camera) : 'null');
-        throw new Error('takePictureAsync not available on camera ref. Available methods: ' + (camera ? Object.keys(camera).join(', ') : 'none'));
+        throw new Error('takePictureAsync not available on camera ref');
       }
 
       isCapturingRef.current = false;
+
+      // Check if still mounted before processing result
+      if (!isMountedRef.current) {
+        console.log('Component unmounted during capture, discarding result');
+        return;
+      }
 
       if (photo && photo.base64) {
         // Send frame to backend
@@ -149,15 +222,26 @@ export default function CameraScreen() {
         console.warn('Photo captured but no base64 data');
       }
 
-      // Schedule next frame capture
-      frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+      // Schedule next frame capture only if still mounted
+      if (isMountedRef.current) {
+        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+      }
     } catch (err) {
       isCapturingRef.current = false;
       const errorMessage = err instanceof Error ? err.message : String(err);
+      
+      // Don't log "camera unmounted" as an error - it's expected during navigation
+      if (errorMessage.includes('unmounted') || errorMessage.includes('unmount')) {
+        console.log('Camera unmounted during capture (expected during navigation)');
+        return;
+      }
+      
       console.error('Error capturing frame:', errorMessage);
-      setError(`Capture error: ${errorMessage}`);
-      // Continue trying even if one frame fails
-      frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+      if (isMountedRef.current) {
+        setError(`Capture error: ${errorMessage}`);
+        // Continue trying even if one frame fails, but only if still mounted
+        frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+      }
     }
   };
 
@@ -276,24 +360,58 @@ export default function CameraScreen() {
               style={styles.testButton}
               onPress={async () => {
                 console.log('Manual test capture triggered');
+                if (!isMountedRef.current || !cameraRef.current) {
+                  setError('Camera not ready');
+                  return;
+                }
+                
                 try {
                   const camera = cameraRef.current as any;
-                  console.log('Camera ref:', camera);
-                  console.log('Camera methods:', camera ? Object.keys(camera) : 'null');
-                  if (camera && typeof camera.takePictureAsync === 'function') {
-                    const photo = await camera.takePictureAsync({ quality: 0.5, base64: true });
-                    console.log('Test capture successful:', photo ? 'yes' : 'no');
-                    if (photo?.base64) {
-                      await sendFrameToBackend(photo.base64);
-                      frameCountRef.current += 1;
+                  
+                  // Check if camera is still valid
+                  if (!camera) {
+                    setError('Camera ref is null');
+                    return;
+                  }
+                  
+                  let photo = null;
+                  
+                  if (typeof camera.takePictureAsync === 'function') {
+                    photo = await camera.takePictureAsync({ quality: 0.5, base64: true });
+                  } else if (camera._cameraRef && camera._cameraRef.current) {
+                    const nativeCamera = camera._cameraRef.current;
+                    if (nativeCamera && typeof nativeCamera.takePictureAsync === 'function') {
+                      photo = await nativeCamera.takePictureAsync({ quality: 0.5, base64: true });
                     }
+                  }
+                  
+                  // Check if still mounted after async operation
+                  if (!isMountedRef.current) {
+                    console.log('Component unmounted during test capture');
+                    return;
+                  }
+                  
+                  if (photo?.base64) {
+                    console.log('Test capture successful, sending frame...');
+                    await sendFrameToBackend(photo.base64);
+                    frameCountRef.current += 1;
                   } else {
-                    console.error('takePictureAsync not available');
-                    setError('takePictureAsync not available on camera ref');
+                    console.error('Photo captured but no base64 data');
+                    setError('Photo captured but no base64 data');
                   }
                 } catch (err) {
-                  console.error('Test capture error:', err);
-                  setError(`Test error: ${err instanceof Error ? err.message : String(err)}`);
+                  const errorMessage = err instanceof Error ? err.message : String(err);
+                  
+                  // Don't show error if component was unmounted
+                  if (errorMessage.includes('unmounted') || errorMessage.includes('unmount')) {
+                    console.log('Camera unmounted during test capture (expected)');
+                    return;
+                  }
+                  
+                  console.error('Test capture error:', errorMessage);
+                  if (isMountedRef.current) {
+                    setError(`Test error: ${errorMessage}`);
+                  }
                 }
               }}>
               <ThemedText style={styles.testButtonText}>Test Capture</ThemedText>
