@@ -59,7 +59,7 @@ export default function CheckoutScreen() {
       if (sessionId) {
         try {
           console.warn(`🟡 handlePayment: Calling checkout endpoint for sessionId: ${sessionId}`);
-          const checkoutUrl = `${LOCAL_IP}/api/sessions/${sessionId}/checkout`;
+          const checkoutUrl = `http://${LOCAL_IP}:5001/api/sessions/${sessionId}/checkout`;
           console.warn(`🟡 handlePayment: URL: ${checkoutUrl}`);
           
           const response = await fetch(checkoutUrl, {
