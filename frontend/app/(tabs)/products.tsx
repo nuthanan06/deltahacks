@@ -88,51 +88,50 @@ export default function ProductsScreen() {
       });
       
       // Detect quantity changes and play sounds
+      const currentQuantities = new Map<string, number>();
+      let soundPlayed = false;
+      
       // First, check for sound_trigger field from backend
       (cart.items as any[]).forEach((item: any) => {
+        const stableId = item.barcode 
+          ? `${item.label || item.name}_${item.barcode}` 
+          : `${item.label || item.name}_${item.item_id || Date.now()}`;
+        
+        currentQuantities.set(stableId, item.quantity || 1);
+        
         if (item.sound_trigger && item.quantity_changed) {
-          const stableId = item.barcode 
-            ? `${item.label || item.name}_${item.barcode}` 
-            : `${item.label || item.name}_${item.item_id || Date.now()}`;
-          
           if (item.sound_trigger === 'increase') {
             playBeep(800); // Higher pitch
-            console.log(`🔊 Backend triggered INCREASE sound for ${item.product_name || item.label}: quantity = ${item.quantity}`);
+            soundPlayed = true;
+            console.log(`🔊🔊🔊 Backend triggered INCREASE sound for ${item.product_name || item.label}: quantity = ${item.quantity}`);
           } else if (item.sound_trigger === 'decrease') {
             playBeep(400); // Lower pitch
-            console.log(`🔊 Backend triggered DECREASE sound for ${item.product_name || item.label}: quantity = ${item.quantity || 0}`);
+            soundPlayed = true;
+            console.log(`🔊🔊🔊 Backend triggered DECREASE sound for ${item.product_name || item.label}: quantity = ${item.quantity || 0}`);
           }
         }
       });
       
       // Also detect quantity changes by comparing with previous state (fallback)
-      const currentQuantities = new Map<string, number>();
-      productsArray.forEach(product => {
-        const prevQuantity = previousQuantitiesRef.current.get(product.id) || 0;
-        const currentQuantity = product.quantity;
-        currentQuantities.set(product.id, currentQuantity);
-        
-        // Only play sound if not already triggered by backend sound_trigger
-        const item = (cart.items as any[]).find((i: any) => {
-          const stableId = i.barcode 
-            ? `${i.label || i.name}_${i.barcode}` 
-            : `${i.label || i.name}_${i.item_id || Date.now()}`;
-          return stableId === product.id;
-        });
-        
-        if (prevQuantity > 0 && currentQuantity !== prevQuantity && !item?.sound_trigger) {
-          // Quantity changed - play sound (fallback if backend didn't set sound_trigger)
-          if (currentQuantity > prevQuantity) {
-            // Quantity increased
-            playBeep(800); // Higher pitch
-            console.log(`🔊 Frontend detected quantity increase for ${product.name}: ${prevQuantity} -> ${currentQuantity}`);
-          } else if (currentQuantity < prevQuantity) {
-            // Quantity decreased
-            playBeep(400); // Lower pitch
-            console.log(`🔊 Frontend detected quantity decrease for ${product.name}: ${prevQuantity} -> ${currentQuantity}`);
+      if (!soundPlayed) {
+        productsArray.forEach(product => {
+          const prevQuantity = previousQuantitiesRef.current.get(product.id) || 0;
+          const currentQuantity = product.quantity;
+          
+          // Play sound if quantity changed (including first time when prevQuantity is 0 and currentQuantity > 0)
+          if (currentQuantity !== prevQuantity) {
+            if (currentQuantity > prevQuantity) {
+              // Quantity increased (or new item added)
+              playBeep(800); // Higher pitch
+              console.log(`🔊🔊🔊 Frontend detected quantity increase for ${product.name}: ${prevQuantity} -> ${currentQuantity}`);
+            } else if (currentQuantity < prevQuantity && prevQuantity > 0) {
+              // Quantity decreased
+              playBeep(400); // Lower pitch
+              console.log(`🔊🔊🔊 Frontend detected quantity decrease for ${product.name}: ${prevQuantity} -> ${currentQuantity}`);
+            }
           }
-        }
-      });
+        });
+      }
       
       // Update previous quantities
       previousQuantitiesRef.current = currentQuantities;
