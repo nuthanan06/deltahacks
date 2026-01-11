@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useCart } from '@/contexts/CartContext';
+import { LOCAL_IP } from '@/config/api';
 
 /**
  * Checkout Screen
@@ -58,8 +59,7 @@ export default function CheckoutScreen() {
       if (sessionId) {
         try {
           console.warn(`🟡 handlePayment: Calling checkout endpoint for sessionId: ${sessionId}`);
-          const API_BASE_URL = 'http://localhost:5001';
-          const checkoutUrl = `${API_BASE_URL}/api/sessions/${sessionId}/checkout`;
+          const checkoutUrl = `${LOCAL_IP}/api/sessions/${sessionId}/checkout`;
           console.warn(`🟡 handlePayment: URL: ${checkoutUrl}`);
           
           const response = await fetch(checkoutUrl, {
