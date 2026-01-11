@@ -73,11 +73,24 @@ def start_webcam_for_session(session_id, use_phone_camera=True):
             print(f"ERROR: Webcam detection loop failed for session {session_id}: {e}")
             import traceback
             traceback.print_exc()
+            # Don't restart on error - just clean up and exit
         finally:
             # Clean up from active list when done
             if session_id in active_webcams:
                 del active_webcams[session_id]
                 print(f"Cleaned up webcam for session: {session_id}")
+            # Delete the cart from Firebase and mark session as completed
+            try:
+                FirebaseCartManager().delete_cart(session_id)
+                print(f"Deleted Firebase cart for failed/stopped session: {session_id}")
+                # Mark session as completed so it won't restart
+                sessions.update_one(
+                    {"session_id": session_id},
+                    {"$set": {"status": "completed", "paired": False}}
+                )
+                print(f"Marked session as completed: {session_id}")
+            except Exception as cleanup_error:
+                print(f"Error cleaning up Firebase cart: {cleanup_error}")
     
     # Run webcam in background thread so API responds immediately
     thread = threading.Thread(target=detector_thread, daemon=True)
