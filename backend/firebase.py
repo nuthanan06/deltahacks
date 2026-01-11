@@ -223,27 +223,26 @@ class FirebaseCartManager:
         item_found = False
         normalized_label = self._normalize_label(label)
         
-        # Check if item already exists (by barcode first, then by normalized label)
+        # Check if item already exists (by normalized label first to group same products, then by barcode for exact match)
         for i, item in enumerate(items):
-            # Priority 1: Match by barcode if both have barcodes
-            if barcode and item.get('barcode') == barcode:
+            # Priority 1: Match by normalized label (groups same products even with different barcodes)
+            item_label = item.get('label', '')
+            normalized_item_label = self._normalize_label(item_label)
+            if normalized_label == normalized_item_label:
                 item_found = True
                 # Increment quantity
                 items[i]['quantity'] = items[i].get('quantity', 1) + 1
                 items[i]['updated_at'] = datetime.now().isoformat()
                 items[i]['action'] = 'add'
                 break
-            # Priority 2: Match by normalized label (handles classification variations)
-            elif not barcode or not item.get('barcode'):
-                item_label = item.get('label', '')
-                normalized_item_label = self._normalize_label(item_label)
-                if normalized_label == normalized_item_label:
-                    item_found = True
-                    # Increment quantity
-                    items[i]['quantity'] = items[i].get('quantity', 1) + 1
-                    items[i]['updated_at'] = datetime.now().isoformat()
-                    items[i]['action'] = 'add'
-                    break
+            # Priority 2: Match by barcode if both have barcodes AND they match (for exact same product)
+            elif barcode and item.get('barcode') == barcode:
+                item_found = True
+                # Increment quantity
+                items[i]['quantity'] = items[i].get('quantity', 1) + 1
+                items[i]['updated_at'] = datetime.now().isoformat()
+                items[i]['action'] = 'add'
+                break
         
         # If item not found, create new item with quantity 1
         if not item_found:
@@ -310,10 +309,12 @@ class FirebaseCartManager:
         item_price = price or 0.0
         normalized_label = self._normalize_label(label)
         
-        # Find the item (by barcode first, then by normalized label)
+        # Find the item (by normalized label first to group same products, then by barcode for exact match)
         for i, item in enumerate(items):
-            # Priority 1: Match by barcode if both have barcodes
-            if barcode and item.get('barcode') == barcode:
+            # Priority 1: Match by normalized label (groups same products even with different barcodes)
+            item_label = item.get('label', '')
+            normalized_item_label = self._normalize_label(item_label)
+            if normalized_label == normalized_item_label:
                 item_found = True
                 current_quantity = item.get('quantity', 1)
                 item_price = item.get('price', price or 0.0)
@@ -328,25 +329,22 @@ class FirebaseCartManager:
                     items.pop(i)
                 
                 break
-            # Priority 2: Match by normalized label (handles classification variations)
-            elif not barcode or not item.get('barcode'):
-                item_label = item.get('label', '')
-                normalized_item_label = self._normalize_label(item_label)
-                if normalized_label == normalized_item_label:
-                    item_found = True
-                    current_quantity = item.get('quantity', 1)
-                    item_price = item.get('price', price or 0.0)
-                    
-                    # Decrement quantity
-                    if current_quantity > 1:
-                        items[i]['quantity'] = current_quantity - 1
-                        items[i]['updated_at'] = datetime.now().isoformat()
-                        items[i]['action'] = 'delete'
-                    else:
-                        # Remove item if quantity reaches 0
-                        items.pop(i)
-                    
-                    break
+            # Priority 2: Match by barcode if both have barcodes (for exact same product)
+            elif barcode and item.get('barcode') == barcode:
+                item_found = True
+                current_quantity = item.get('quantity', 1)
+                item_price = item.get('price', price or 0.0)
+                
+                # Decrement quantity
+                if current_quantity > 1:
+                    items[i]['quantity'] = current_quantity - 1
+                    items[i]['updated_at'] = datetime.now().isoformat()
+                    items[i]['action'] = 'delete'
+                else:
+                    # Remove item if quantity reaches 0
+                    items.pop(i)
+                
+                break
         
         if not item_found:
             return f"{label}_not_found"
