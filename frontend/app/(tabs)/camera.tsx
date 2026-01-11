@@ -30,6 +30,7 @@ export default function CameraScreen() {
   const frameCountRef = useRef<number>(0);
   const isCapturingRef = useRef<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
+  const isStreamingRef = useRef<boolean>(false); // Use ref to avoid stale closure
 
   // Frame capture rate: send 1 frame every ~100ms (10 FPS)
   const FRAME_INTERVAL_MS = 100;
@@ -107,16 +108,20 @@ export default function CameraScreen() {
 
     console.log('Starting frame streaming...');
     setIsStreaming(true);
+    isStreamingRef.current = true; // Update ref immediately
     setError(null);
     frameCountRef.current = 0;
     lastFrameTimeRef.current = Date.now();
 
     // Start capturing frames periodically
+    console.log('Calling captureAndSendFrame to start loop...');
     captureAndSendFrame();
   };
 
   const stopStreaming = () => {
+    console.log('Stopping frame streaming...');
     setIsStreaming(false);
+    isStreamingRef.current = false; // Update ref
     isCapturingRef.current = false;
     if (frameIntervalRef.current) {
       clearTimeout(frameIntervalRef.current);
@@ -131,12 +136,20 @@ export default function CameraScreen() {
       return;
     }
 
-    if (!isStreaming || !sessionId || !cameraRef.current || isCapturingRef.current || !cameraReady) {
-      if (!cameraReady) {
-        console.log('Camera not ready yet, waiting...');
+    // Use ref for isStreaming to avoid stale closure issues
+    if (!isStreamingRef.current || !sessionId || !cameraRef.current || isCapturingRef.current || !cameraReady) {
+      if (!isStreamingRef.current) {
+        console.log('Streaming not active, stopping capture loop');
+        return;
       }
-      // Schedule retry only if still mounted
-      if (isMountedRef.current) {
+      if (!cameraReady) {
+        console.log('Camera not ready yet, retrying in', FRAME_INTERVAL_MS, 'ms...');
+      }
+      if (isCapturingRef.current) {
+        console.log('Already capturing, skipping this cycle');
+      }
+      // Schedule retry only if still mounted and streaming
+      if (isMountedRef.current && isStreamingRef.current) {
         frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
       }
       return;
@@ -148,7 +161,7 @@ export default function CameraScreen() {
 
       if (timeSinceLastFrame < FRAME_INTERVAL_MS) {
         // Schedule next frame capture
-        if (isMountedRef.current) {
+        if (isMountedRef.current && isStreamingRef.current) {
           frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS - timeSinceLastFrame);
         }
         return;
@@ -225,9 +238,11 @@ export default function CameraScreen() {
         console.warn('Photo captured but no base64 data');
       }
 
-      // Schedule next frame capture only if still mounted
-      if (isMountedRef.current) {
+      // Schedule next frame capture only if still mounted and streaming
+      if (isMountedRef.current && isStreamingRef.current) {
         frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+      } else {
+        console.log('Stopping capture loop - mounted:', isMountedRef.current, 'streaming:', isStreamingRef.current);
       }
     } catch (err) {
       isCapturingRef.current = false;
@@ -240,10 +255,12 @@ export default function CameraScreen() {
       }
       
       console.error('Error capturing frame:', errorMessage);
-      if (isMountedRef.current) {
+      if (isMountedRef.current && isStreamingRef.current) {
         setError(`Capture error: ${errorMessage}`);
-        // Continue trying even if one frame fails, but only if still mounted
+        // Continue trying even if one frame fails, but only if still mounted and streaming
         frameIntervalRef.current = setTimeout(captureAndSendFrame, FRAME_INTERVAL_MS);
+      } else {
+        console.log('Stopping capture loop after error - mounted:', isMountedRef.current, 'streaming:', isStreamingRef.current);
       }
     }
   };
