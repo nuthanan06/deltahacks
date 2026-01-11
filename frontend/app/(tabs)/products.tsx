@@ -139,11 +139,9 @@ export default function ProductsScreen() {
       // Play sound and haptic feedback based on change direction
       if (change > 0) {
         // Increase: Higher pitch ding + light haptic
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         playIncreaseSound();
       } else {
         // Decrease: Lower pitch + medium haptic
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         playDecreaseSound();
       }
       updateProductQuantity(product.id, newQuantity);
