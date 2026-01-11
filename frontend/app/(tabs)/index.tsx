@@ -384,6 +384,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+    backgroundColor: '#505066', //BASE COLOR
   },
   title: {
     marginBottom: 20,
@@ -406,10 +407,10 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
   cartButton: {
-    backgroundColor: '#0a7ea4',
+    backgroundColor: '#069e66',
   },
   phoneButton: {
-    backgroundColor: '#28a745',
+    backgroundColor: '#eda70e',
   },
   buttonText: {
     color: '#fff',

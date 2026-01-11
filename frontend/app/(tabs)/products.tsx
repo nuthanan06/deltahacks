@@ -61,7 +61,7 @@ export default function ProductsScreen() {
   };
 
   const renderProduct = ({ item }: { item: Product }) => (
-    <ThemedView style={styles.productCard}>
+    <View style={styles.productCard}>
       <View style={styles.productInfo}>
         <ThemedText type="defaultSemiBold" style={styles.productName}>
           {item.name}
@@ -92,12 +92,12 @@ export default function ProductsScreen() {
       <ThemedText style={styles.productTotal}>
         {formatPrice(item.price * item.quantity)}
       </ThemedText>
-    </ThemedView>
+    </View>
   );
 
   return (
-    <ThemedView style={styles.container}>
-      <ThemedView style={styles.header}>
+    <View style={styles.container}>
+      <View style={styles.header}>
         <ThemedText type="title" style={styles.title}>
           Your Cart
         </ThemedText>
@@ -109,14 +109,14 @@ export default function ProductsScreen() {
         <ThemedText style={styles.subtitle}>
           {products.length} {products.length === 1 ? 'item' : 'items'}
         </ThemedText>
-      </ThemedView>
+      </View>
 
       {products.length === 0 ? (
-        <ThemedView style={styles.emptyContainer}>
+        <View style={styles.emptyContainer}>
           <ThemedText style={styles.emptyText}>
             Your cart is empty. Scan an NFC chip to add products.
           </ThemedText>
-        </ThemedView>
+        </View>
       ) : (
         <>
           <FlatList
@@ -127,7 +127,7 @@ export default function ProductsScreen() {
             showsVerticalScrollIndicator={false}
           />
 
-          <ThemedView style={styles.footer}>
+          <View style={styles.footer}>
             <View style={styles.subtotalRow}>
               <ThemedText type="defaultSemiBold">Subtotal:</ThemedText>
               <ThemedText type="defaultSemiBold">
@@ -143,20 +143,22 @@ export default function ProductsScreen() {
                 Proceed to Checkout
               </ThemedText>
             </TouchableOpacity>
-          </ThemedView>
+          </View>
         </>
       )}
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#505066', //BASE COLOR
   },
   header: {
+    backgroundColor: '#069e66',
     padding: 20,
-    paddingTop: 60,
+    paddingTop: 80,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.1)',
   },
