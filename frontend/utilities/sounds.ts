@@ -73,9 +73,9 @@ function generateBeep(frequency: number, duration: number = 0.2): string {
 }
 
 /**
- * Play a beep sound
+ * Play a beep sound (exported for use in Firebase listener)
  */
-async function playBeep(frequency: number) {
+export async function playBeep(frequency: number) {
   try {
     await ensureAudioMode();
     

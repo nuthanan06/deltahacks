@@ -6,7 +6,7 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import * as Haptics from 'expo-haptics';
 
 import { ThemedText } from '@/components/themed-text';
@@ -16,7 +16,7 @@ import type { Product } from '@/contexts/CartContext';
 import { listenToCart } from '@/utilities/firebase-db';
 import type { Cart } from '@/utilities/firebase-db';
 import { LOCAL_IP } from '@/config/api';
-import { initializeSounds, playIncreaseSound, playDecreaseSound, cleanupSounds } from '@/utilities/sounds';
+import { initializeSounds, playIncreaseSound, playDecreaseSound, cleanupSounds, playBeep } from '@/utilities/sounds';
 
 /**
  * Scanned Products Screen
@@ -33,6 +33,7 @@ import { initializeSounds, playIncreaseSound, playDecreaseSound, cleanupSounds }
 export default function ProductsScreen() {
   const router = useRouter();
   const { products, setProducts, updateProductQuantity, removeProduct, getSubtotal, sessionId } = useCart();
+  const previousQuantitiesRef = useRef<Map<string, number>>(new Map());
 
   console.warn('🔴🔴🔴 ProductsScreen RENDERED with sessionId:', sessionId);
 
@@ -52,6 +53,7 @@ export default function ProductsScreen() {
     if (!sessionId) {
       console.log('ProductsScreen: No sessionId, clearing products');
       setProducts([]);
+      previousQuantitiesRef.current.clear();
       return;
     }
 
@@ -65,6 +67,7 @@ export default function ProductsScreen() {
       
       if (!cart || !cart.items) {
         setProducts([]);
+        previousQuantitiesRef.current.clear();
         return;
       }
 
@@ -76,6 +79,31 @@ export default function ProductsScreen() {
         price: item.price || 0,
         quantity: item.quantity || 1, // Use the quantity field from Firebase
       }));
+      
+      // Detect quantity changes and play sounds
+      const currentQuantities = new Map<string, number>();
+      productsArray.forEach(product => {
+        const prevQuantity = previousQuantitiesRef.current.get(product.id) || 0;
+        const currentQuantity = product.quantity;
+        currentQuantities.set(product.id, currentQuantity);
+        
+        if (prevQuantity > 0 && currentQuantity !== prevQuantity) {
+          // Quantity changed - play sound
+          if (currentQuantity > prevQuantity) {
+            // Quantity increased
+            playBeep(800); // Higher pitch
+            console.log(`🔊 Quantity increased for ${product.name}: ${prevQuantity} -> ${currentQuantity}`);
+          } else if (currentQuantity < prevQuantity) {
+            // Quantity decreased
+            playBeep(400); // Lower pitch
+            console.log(`🔊 Quantity decreased for ${product.name}: ${prevQuantity} -> ${currentQuantity}`);
+          }
+        }
+      });
+      
+      // Update previous quantities
+      previousQuantitiesRef.current = currentQuantities;
+      
       console.log('ProductsScreen: Updated products:', productsArray);
       setProducts(productsArray);
     });
