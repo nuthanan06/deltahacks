@@ -127,7 +127,7 @@ export default function ProductsScreen() {
     if (sessionId) {
       try {
         console.warn(`🟡 handleCheckout: Calling checkout endpoint for sessionId: ${sessionId}`);
-        const checkoutUrl = `${LOCAL_IP}/api/sessions/${sessionId}/checkout`;
+        const checkoutUrl = `http://${LOCAL_IP}:5001/api/sessions/${sessionId}/checkout`;
         console.warn(`🟡 handleCheckout: URL: ${checkoutUrl}`);
         
         const response = await fetch(checkoutUrl, {
