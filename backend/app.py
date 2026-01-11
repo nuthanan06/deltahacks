@@ -7,6 +7,7 @@ import qrcode
 import io
 import base64
 import uuid
+import threading
 from webcam import CartTrackerWebcam 
 from firebase import FirebaseCartManager
 
@@ -22,6 +23,29 @@ prices = db.prices  # Product price catalog
 
 def now():
     return datetime.utcnow()
+
+
+# ============================================================================
+# WEBCAM UTILITIES
+# ============================================================================
+
+def start_webcam_for_session(session_id):
+    """Start the webcam detector in a background thread"""
+    def detector_thread():
+        try:
+            print(f"Starting webcam for session: {session_id}")
+            detector = CartTrackerWebcam(sessionId=session_id)
+            print(f"Webcam initialized, starting detection loop...")
+            detector.run()
+        except Exception as e:
+            print(f"ERROR: Webcam failed for session {session_id}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # Run webcam in background thread so API responds immediately
+    thread = threading.Thread(target=detector_thread, daemon=True)
+    thread.start()
+    print(f"Webcam thread started for session: {session_id}")
 
 
 # ============================================================================
@@ -56,6 +80,7 @@ def create_session():
     session_doc = {
         "session_id": session_id,
         "status": "active",
+        "device_type": "cart",  # This session was created by a cart
     }
     sessions.insert_one(session_doc)
     
@@ -135,7 +160,20 @@ def pair_phone():
     if not session:
         return jsonify({"error": "Session not found"}), 404
     
-    # Session exists, pairing successful (no data to store)
+    # Only allow pairing if the session was created by a cart device
+    if session.get("device_type") != "cart":
+        return jsonify({"error": "This session was not created by a cart device"}), 403
+    
+    # Mark the session as paired (phone has scanned the QR code)
+    sessions.update_one(
+        {"session_id": session_id},
+        {"$set": {"paired": True, "paired_at": now()}}
+    )
+    
+    # Start the webcam for this session
+    start_webcam_for_session(session_id)
+    
+    # Session exists, pairing successful
     return jsonify({
         "status": "paired",
         "session_id": session_id,
@@ -153,6 +191,8 @@ def get_pairing_status(session_id):
     return jsonify({
         "session_id": session_id,
         "status": session.get("status"),
+        "paired": session.get("paired", False),
+        "device_type": session.get("device_type"),
     }), 200
 
 
@@ -319,17 +359,12 @@ def get_cart_items(session_id):
 
 
 # ============================================================================
-# RUN WEBCAM API 
+# RUN WEBCAM API (DISABLED - webcam now starts when phone pairs via /api/pair)
 # ============================================================================
-@app.route("/api/webcam/<session_id>", methods=["GET"])
-def run_webcam(session_id):
-    """Run the webcam object detection for a given session"""
-
-    detector = CartTrackerWebcam(sessionId=session_id)
-    detector.run()
-
-    return jsonify({"status": "webcam started", "session_id": session_id}), 200
-
+# @app.route("/api/webcam/<session_id>", methods=["GET"])
+# def run_webcam_endpoint(session_id):
+#     """DEPRECATED: Use /api/pair endpoint instead"""
+#     pass
 
 
 if __name__ == "__main__":

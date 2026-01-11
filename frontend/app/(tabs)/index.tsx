@@ -77,6 +77,8 @@ export default function QRCodeScreen() {
       setQrCodeImageUri(qrData.qr_code);
       setQrCodeData(newSessionId);
       setShowQRCode(true);
+
+      // Webcam will be started by the cart device after phone pairs
     } catch (error) {
       console.error('Error creating session or fetching QR code:', error);
       Alert.alert(
@@ -165,9 +167,6 @@ export default function QRCodeScreen() {
         session_id: string;
       };
 
-      // Store session_id in context for use across the app
-      setSessionId(pairData.session_id);
-
       // Success! Show confirmation and navigate
       // The alertShownRef ensures we only show this once per session ID
       Alert.alert(
@@ -178,8 +177,14 @@ export default function QRCodeScreen() {
             text: 'OK',
             onPress: () => {
               console.log('Paired session:', pairData);
-              // Navigate to products screen
-              router.push('/(tabs)/products');
+              // Set sessionId RIGHT BEFORE navigation to ensure it's in state
+              console.log('handleBarCodeScanned: Setting sessionId to:', pairData.session_id);
+              setSessionId(pairData.session_id);
+              // Small delay to allow state to update before navigation
+              setTimeout(() => {
+                // Navigate to products screen
+                router.push('/(tabs)/products');
+              }, 100);
               // Reset processing state after navigation
               setTimeout(() => {
                 setIsProcessingScan(false);

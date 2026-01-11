@@ -17,13 +17,16 @@ export function listenToCartItems(
   sessionId: string,
   onItemsUpdate: (items: CartItem[]) => void
 ) {
+  console.log('[listenToCartItems] Setting up listener for sessionId:', sessionId);
   const cartsRef = collection(db, 'carts');
   
   const unsubscribe = onSnapshot(
     query(cartsRef, where('session_id', '==', sessionId)),
     (snapshot) => {
+      console.log('[listenToCartItems] Snapshot received, empty:', snapshot.empty, 'size:', snapshot.size);
       if (!snapshot.empty) {
         const cartDoc = snapshot.docs[0].data();
+        console.log('[listenToCartItems] Cart data:', cartDoc);
         const items: CartItem[] = (cartDoc.items || []).map((item: any) => ({
           id: item.item_id,
           label: item.label,
@@ -33,11 +36,14 @@ export function listenToCartItems(
           timestamp: item.timestamp,
           confidence: item.confidence,
         }));
+        console.log('[listenToCartItems] Calling callback with items:', items);
         onItemsUpdate(items);
+      } else {
+        console.log('[listenToCartItems] No cart found for session:', sessionId);
       }
     },
     (error) => {
-      console.error('Error listening to cart items:', error);
+      console.error('[listenToCartItems] Error listening to cart items:', error);
     }
   );
 
@@ -51,11 +57,13 @@ export function listenToCartItems(
 export function listenToAllCarts(
   onCartsUpdate: (carts: Cart[]) => void
 ) {
+  console.log('[listenToAllCarts] Setting up listener for all carts');
   const cartsRef = collection(db, 'carts');
   
   const unsubscribe = onSnapshot(
     cartsRef,
     (snapshot) => {
+      console.log('[listenToAllCarts] Snapshot received, size:', snapshot.size);
       const carts: Cart[] = snapshot.docs.map((doc) => {
         const data = doc.data();
         return {
@@ -75,10 +83,11 @@ export function listenToAllCarts(
           createdAt: data.created_at?.toDate(),
         };
       });
+      console.log('[listenToAllCarts] Calling callback with carts:', carts);
       onCartsUpdate(carts);
     },
     (error) => {
-      console.error('Error listening to carts:', error);
+      console.error('[listenToAllCarts] Error listening to carts:', error);
     }
   );
 
@@ -94,12 +103,14 @@ export function listenToCart(
   sessionId: string,
   onCartUpdate: (cart: Cart | null) => void
 ) {
+  console.log('[listenToCart] Setting up listener for sessionId:', sessionId);
   // Query by document ID, not session_id field
   const cartDocRef = doc(db, 'carts', sessionId);
   
   const unsubscribe = onSnapshot(
     cartDocRef,
     (docSnapshot) => {
+      console.log('[listenToCart] Snapshot received, exists:', docSnapshot.exists());
       if (docSnapshot.exists()) {
         const data = docSnapshot.data();
         const cart: Cart = {
@@ -118,15 +129,16 @@ export function listenToCart(
           totalPrice: data.total_price,
           createdAt: data.created_at?.toDate(),
         };
-        console.log('Firebase cart updated:', cart); // Debug log
+        console.log('[listenToCart] Firebase cart updated:', cart);
+        console.log('[listenToCart] Calling callback with cart');
         onCartUpdate(cart);
       } else {
-        console.log('Cart document does not exist:', sessionId); // Debug log
+        console.log('[listenToCart] Cart document does not exist:', sessionId);
         onCartUpdate(null);
       }
     },
     (error) => {
-      console.error('Error listening to cart:', error);
+      console.error('[listenToCart] Error listening to cart:', error);
       onCartUpdate(null);
     }
   );

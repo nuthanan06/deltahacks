@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { API_BASE_URL } from '@/config/api';
 
 // Product type definition
@@ -12,13 +12,13 @@ export interface Product {
 // Cart context type
 interface CartContextType {
   products: Product[];
+  setProducts: (products: Product[]) => void;
   sessionId: string | null;
   setSessionId: (sessionId: string | null) => void;
   addProduct: (product: Product) => void;
   updateProductQuantity: (id: string, quantity: number) => void;
   removeProduct: (id: string) => void;
   clearCart: () => void;
-  refreshCart: () => Promise<void>;
   getTotal: () => number;
   getSubtotal: () => number;
   getTax: () => number;
@@ -31,69 +31,15 @@ const TAX_RATE = 0.13; // 13% tax
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionIdInternal, setSessionIdInternal] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Function to fetch cart items from Firebase
-  const fetchCartItems = useCallback(async () => {
-    if (!sessionId) {
-      setProducts([]);
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/carts/${sessionId}/items`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch cart items: ${response.statusText}`);
-      }
-
-      const data = await response.json() as { items?: any[] };
-      const items = data.items || [];
-
-      // Transform Firebase items to Product format
-      // Group items by product_name and count quantity
-      const productMap = new Map<string, Product>();
-
-      items.forEach((item: any) => {
-        // Use product_name or label as the key
-        const productKey = item.product_name || item.label || 'Unknown Product';
-        
-        if (productMap.has(productKey)) {
-          // Increment quantity if product already exists
-          const existing = productMap.get(productKey)!;
-          existing.quantity += 1;
-        } else {
-          // Create new product entry
-          productMap.set(productKey, {
-            id: item.item_id || `${productKey}_${Date.now()}`,
-            name: productKey,
-            price: item.price || 0,
-            quantity: 1,
-          });
-        }
-      });
-
-      // Convert map to array
-      const productsArray = Array.from(productMap.values());
-      setProducts(productsArray);
-    } catch (error) {
-      console.error('Error fetching cart items:', error);
-      // Don't clear products on error, keep existing state
-    } finally {
-      setIsLoading(false);
-    }
-  }, [sessionId]);
-
-  // Fetch cart items from Firebase when sessionId changes
-  useEffect(() => {
-    fetchCartItems();
-  }, [fetchCartItems]);
-
-  // Refresh function to manually reload cart items
-  const refreshCart = useCallback(async () => {
-    await fetchCartItems();
-  }, [fetchCartItems]);
+  // Wrap setSessionId to add logging
+  const sessionId = sessionIdInternal;
+  const setSessionId = (id: string | null) => {
+    console.log('CartContext: sessionId changing from', sessionIdInternal, 'to', id);
+    setSessionIdInternal(id);
+  };
 
   const addProduct = (product: Product) => {
     setProducts((prev: Product[]) => {
@@ -145,13 +91,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
     <CartContext.Provider
       value={{
         products,
+        setProducts,
         sessionId,
         setSessionId,
         addProduct,
         updateProductQuantity,
         removeProduct,
         clearCart,
-        refreshCart,
         getTotal,
         getSubtotal,
         getTax,

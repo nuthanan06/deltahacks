@@ -351,10 +351,15 @@ class CartTrackerWebcam:
         self.manager.remove_item(session_id=self.sessionId, label=label, barcode=barcode)
 
 
-    def run(self):
-        """Main loop to process video frames."""
+    def run(self, show_window=False):
+        """Main loop to process video frames.
+        
+        Args:
+            show_window: If True, display OpenCV window (requires GUI). Default False for Flask background threads.
+        """
         print(f"Starting cart tracker. Output folder: {self.output_folder}")
-        print("Press 'q' to quit")
+        if show_window:
+            print("Press 'q' to quit")
         
         while True:
             ret, frame = self.cap.read()
@@ -364,21 +369,23 @@ class CartTrackerWebcam:
             detected_this_frame, detected_labels, results = self.process_frame(frame)
             self.update_tracking(detected_this_frame, detected_labels)
             
-            annotated = results.plot()
-            cv2.imshow("YOLOv8", annotated)
-            
             print("CONFIRMED", self.confirmed)
             print("DIRECTION SCORE", dict(self.direction_score))
             
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
+            # Only show window if explicitly requested (for manual testing)
+            if show_window:
+                annotated = results.plot()
+                cv2.imshow("YOLOv8", annotated)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
         
         self.cleanup()
     
     def cleanup(self):
         """Release resources."""
         self.cap.release()
-        cv2.destroyAllWindows()
+        if cv2.getWindowProperty("YOLOv8", cv2.WND_PROP_VISIBLE) >= 0:
+            cv2.destroyAllWindows()
         print(f"\nFinal cart contents: {self.confirmed}")
 
 

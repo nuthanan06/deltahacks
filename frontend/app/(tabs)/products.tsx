@@ -6,11 +6,14 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useEffect } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useCart } from '@/contexts/CartContext';
 import type { Product } from '@/contexts/CartContext';
+import { listenToCart } from '@/utilities/firebase-db';
+import type { Cart } from '@/utilities/firebase-db';
 
 /**
  * Scanned Products Screen
@@ -26,7 +29,68 @@ import type { Product } from '@/contexts/CartContext';
  */
 export default function ProductsScreen() {
   const router = useRouter();
-  const { products, updateProductQuantity, removeProduct, getSubtotal, sessionId } = useCart();
+  const { products, setProducts, updateProductQuantity, removeProduct, getSubtotal, sessionId } = useCart();
+
+  console.warn('🔴🔴🔴 ProductsScreen RENDERED with sessionId:', sessionId);
+
+  // Set up Firebase listener for real-time cart updates
+  useEffect(() => {
+    console.warn('🟡 ProductsScreen useEffect running, sessionId:', sessionId);
+    
+    if (!sessionId) {
+      console.log('ProductsScreen: No sessionId, clearing products');
+      setProducts([]);
+      return;
+    }
+
+    console.log('ProductsScreen: Setting up Firebase listener for session:', sessionId);
+
+    // Listen to cart updates in real-time
+    const unsubscribe = listenToCart(sessionId, (cart: Cart | null) => {
+      console.log('ProductsScreen: Firebase callback triggered');
+      console.log('ProductsScreen: Firebase update received:', cart);
+      console.log('ProductsScreen: Cart items count:', cart?.items?.length || 0);
+      
+      if (!cart || !cart.items) {
+        setProducts([]);
+        return;
+      }
+
+      // Transform Firebase items to Product format
+      // Group items by product_name and count quantity
+      const productMap = new Map<string, Product>();
+
+      cart.items.forEach((item: any) => {
+        // Use name or label as the key
+        const productKey = item.name || item.label || 'Unknown Product';
+        
+        if (productMap.has(productKey)) {
+          // Increment quantity if product already exists
+          const existing = productMap.get(productKey)!;
+          existing.quantity += 1;
+        } else {
+          // Create new product entry
+          productMap.set(productKey, {
+            id: item.id || `${productKey}_${Date.now()}`,
+            name: productKey,
+            price: item.price || 0,
+            quantity: 1,
+          });
+        }
+      });
+
+      // Convert map to array
+      const productsArray = Array.from(productMap.values());
+      console.log('ProductsScreen: Updated products:', productsArray);
+      setProducts(productsArray);
+    });
+
+    // Cleanup listener when sessionId changes or component unmounts
+    return () => {
+      console.log('ProductsScreen: Cleaning up Firebase listener');
+      unsubscribe();
+    };
+  }, [sessionId, setProducts]);
 
   const handleCheckout = () => {
     if (products.length === 0) {
