@@ -1,5 +1,5 @@
 import { StyleSheet, TouchableOpacity, Modal, View, Alert, Text, ActivityIndicator, Platform } from 'react-native';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -36,6 +36,47 @@ export default function QRCodeScreen() {
   const alertShownRef = useRef<string>(''); // Track which session ID we've shown alert for
   const [permission, requestPermission] = useCameraPermissions();
   const pairingCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll for pairing status when cart is waiting for phone to scan
+  useEffect(() => {
+    if (!showQRCode || !sessionId) {
+      return;
+    }
+
+    console.log('Starting pairing status polling for session:', sessionId);
+    
+    const checkPairingStatus = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/pairing-status`);
+        if (response.ok) {
+          const data = await response.json() as { paired: boolean; session_id: string };
+          if (data.paired) {
+            console.log('Phone paired! Navigating to camera...');
+            // Stop polling
+            if (pairingCheckIntervalRef.current) {
+              clearInterval(pairingCheckIntervalRef.current);
+              pairingCheckIntervalRef.current = null;
+            }
+            // Navigate cart to camera
+            setShowQRCode(false);
+            router.push(`/(tabs)/camera?sessionId=${sessionId}`);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking pairing status:', error);
+      }
+    };
+
+    // Check immediately and then every 2 seconds
+    checkPairingStatus();
+    pairingCheckIntervalRef.current = setInterval(checkPairingStatus, 2000);
+
+    return () => {
+      if (pairingCheckIntervalRef.current) {
+        clearInterval(pairingCheckIntervalRef.current);
+      }
+    };
+  }, [showQRCode, sessionId, router]);
 
   const handleImACart = async (): Promise<void> => {
     setIsLoading(true);
@@ -79,10 +120,8 @@ export default function QRCodeScreen() {
       setQrCodeData(newSessionId);
       setShowQRCode(true);
 
-      // Navigate cart device to camera tab after showing QR
-      setTimeout(() => {
-        router.push(`/(tabs)/camera?sessionId=${newSessionId}`);
-      }, 500);
+      // Cart device waits here for phone to scan and pair
+      // The useEffect polling mechanism will detect pairing and navigate automatically
     } catch (error) {
       console.error('Error creating session or fetching QR code:', error);
       Alert.alert(
