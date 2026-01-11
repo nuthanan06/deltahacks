@@ -78,7 +78,10 @@ export default function QRCodeScreen() {
       setQrCodeData(newSessionId);
       setShowQRCode(true);
 
-      // Webcam will be started by the cart device after phone pairs
+      // Navigate cart device to camera tab after showing QR
+      setTimeout(() => {
+        router.push(`/(tabs)/camera?sessionId=${newSessionId}`);
+      }, 500);
     } catch (error) {
       console.error('Error creating session or fetching QR code:', error);
       Alert.alert(
@@ -171,7 +174,7 @@ export default function QRCodeScreen() {
       // The alertShownRef ensures we only show this once per session ID
       Alert.alert(
         'Successfully Paired!',
-        `Connected to cart session: ${pairData.session_id}\n\nYou can now add items to your cart.`,
+        `Connected to cart session: ${pairData.session_id}\n\nYou can now view your cart.`,
         [
           {
             text: 'OK',
@@ -182,8 +185,8 @@ export default function QRCodeScreen() {
               setSessionId(pairData.session_id);
               // Small delay to allow state to update before navigation
               setTimeout(() => {
-                // Navigate to camera screen to start streaming frames
-                router.push(`/(tabs)/camera?sessionId=${pairData.session_id}`);
+                // Navigate phone to products/cart screen to view items
+                router.push('/(tabs)/products');
               }, 100);
               // Reset processing state after navigation
               setTimeout(() => {
