@@ -156,29 +156,10 @@ export default function ProductsScreen() {
       return;
     }
     
-    console.warn('🔴 handleCheckout: Starting checkout process');
+    console.warn('🔴 handleCheckout: Navigating to checkout (NOT stopping webcam yet)');
     
-    // Call backend to mark session as completed and stop webcam
-    if (sessionId) {
-      try {
-        console.warn(`🟡 handleCheckout: Calling checkout endpoint for sessionId: ${sessionId}`);
-        const checkoutUrl = `http://${LOCAL_IP}:5001/api/sessions/${sessionId}/checkout`;
-        console.warn(`🟡 handleCheckout: URL: ${checkoutUrl}`);
-        
-        const response = await fetch(checkoutUrl, {
-          method: 'PUT',
-        });
-        console.warn(`🟡 handleCheckout: Response status: ${response.status}`);
-        
-        const data = await response.json();
-        console.warn('✅ handleCheckout: Webcam stopped for session:', data);
-      } catch (error) {
-        console.error('❌ handleCheckout: Error stopping webcam:', error);
-      }
-    } else {
-      console.warn('⚠️ handleCheckout: No sessionId available');
-    }
-    
+    // Just navigate to checkout - don't stop webcam or delete cart yet
+    // That will happen when user confirms payment in checkout screen
     console.warn('🟡 handleCheckout: Navigating to checkout screen');
     router.push('/(tabs)/checkout');
   };
