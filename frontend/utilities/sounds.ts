@@ -1,43 +1,78 @@
-import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
 
 /**
- * Sound utility for playing beep sounds
- * Uses Audio API with programmatically generated tones
+ * Simple sound utility - plays a note when quantity changes
  */
 
-let increaseSound: Audio.Sound | null = null;
-let decreaseSound: Audio.Sound | null = null;
-let soundsInitialized = false;
+let audioModeSet = false;
 
 /**
- * Generate a simple beep tone as a data URI
- * Uses a simpler approach that works better in React Native
+ * Play increase sound (higher pitch note)
  */
-function generateTone(frequency: number, duration: number): string {
+export async function playIncreaseSound() {
   try {
+    // Haptic feedback
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    // Play a simple beep note
+    await playBeep(800); // Higher frequency
+  } catch (error) {
+    // Just haptics if audio fails
+  }
+}
+
+/**
+ * Play decrease sound (lower pitch note)
+ */
+export async function playDecreaseSound() {
+  try {
+    // Haptic feedback
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    // Play a simple beep note
+    await playBeep(400); // Lower frequency
+  } catch (error) {
+    // Just haptics if audio fails
+  }
+}
+
+/**
+ * Play a simple beep using expo-av
+ */
+async function playBeep(frequency: number) {
+  try {
+    if (!audioModeSet) {
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        allowsRecordingIOS: false,
+      });
+      audioModeSet = true;
+    }
+
+    // Create a very short audio clip
+    const duration = 0.1; // 100ms
     const sampleRate = 44100;
     const numSamples = Math.floor(sampleRate * duration);
     
-    // Create WAV file buffer
+    // Generate simple sine wave
     const buffer = new ArrayBuffer(44 + numSamples * 2);
     const view = new DataView(buffer);
     
-    // Helper to write strings
-    const writeString = (offset: number, string: string) => {
-      for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
+    // WAV header
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
       }
     };
     
-    // WAV header
     writeString(0, 'RIFF');
     view.setUint32(4, 36 + numSamples * 2, true);
     writeString(8, 'WAVE');
     writeString(12, 'fmt ');
     view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); // PCM
-    view.setUint16(22, 1, true); // Mono
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
     view.setUint32(24, sampleRate, true);
     view.setUint32(28, sampleRate * 2, true);
     view.setUint16(32, 2, true);
@@ -45,152 +80,49 @@ function generateTone(frequency: number, duration: number): string {
     writeString(36, 'data');
     view.setUint32(40, numSamples * 2, true);
     
-    // Generate sine wave samples
+    // Generate tone
     for (let i = 0; i < numSamples; i++) {
       const t = i / sampleRate;
-      // Fade in/out to avoid clicks
-      const fadeIn = Math.min(1, t * 50);
-      const fadeOut = Math.min(1, (duration - t) * 50);
-      const fade = Math.min(fadeIn, fadeOut);
-      const sample = Math.sin(2 * Math.PI * frequency * t) * fade * 0.5;
-      const intSample = Math.max(-32768, Math.min(32767, Math.floor(sample * 32767)));
-      view.setInt16(44 + i * 2, intSample, true);
+      const fade = Math.min(1, t * 100, (duration - t) * 100);
+      const sample = Math.sin(2 * Math.PI * frequency * t) * fade * 0.3;
+      view.setInt16(44 + i * 2, Math.floor(sample * 32767), true);
     }
     
-    // Convert to base64 (React Native compatible)
+    // Convert to base64
     const bytes = new Uint8Array(buffer);
     let binary = '';
     for (let i = 0; i < bytes.length; i++) {
       binary += String.fromCharCode(bytes[i]);
     }
-    // btoa should be available in React Native
     const base64 = btoa(binary);
-    return `data:audio/wav;base64,${base64}`;
+    const dataUri = `data:audio/wav;base64,${base64}`;
+    
+    // Play the sound
+    const { sound } = await Audio.Sound.createAsync({ uri: dataUri });
+    await sound.playAsync();
+    
+    // Clean up after playing
+    sound.setOnPlaybackStatusUpdate((status) => {
+      if (status.isLoaded && status.didJustFinish) {
+        sound.unloadAsync();
+      }
+    });
   } catch (error) {
-    console.error('Error generating tone:', error);
-    return '';
+    // Silently fail - haptics will still work
   }
 }
 
 /**
- * Initialize sound effects
+ * Initialize sounds (no-op, but kept for compatibility)
  */
 export async function initializeSounds() {
-  if (soundsInitialized) return;
-  
-  try {
-    console.log('Initializing sounds...');
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      allowsRecordingIOS: false,
-      staysActiveInBackground: false,
-    });
-
-    // Create increase sound (higher pitch ding - 800Hz)
-    increaseSound = new Audio.Sound();
-    const increaseBeep = generateTone(800, 0.2);
-    if (increaseBeep) {
-      await increaseSound.loadAsync({ uri: increaseBeep });
-      console.log('Increase sound loaded');
-    }
-
-    // Create decrease sound (lower pitch - 400Hz)
-    decreaseSound = new Audio.Sound();
-    const decreaseBeep = generateTone(400, 0.2);
-    if (decreaseBeep) {
-      await decreaseSound.loadAsync({ uri: decreaseBeep });
-      console.log('Decrease sound loaded');
-    }
-    
-    soundsInitialized = true;
-    console.log('Sounds initialized successfully');
-  } catch (error) {
-    console.error('Error initializing sounds:', error);
-    soundsInitialized = false;
-  }
+  // Haptics don't need initialization
 }
 
 /**
- * Play increase sound (ding)
- */
-export async function playIncreaseSound() {
-  try {
-    // Always provide haptic feedback
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
-    // Try to play sound
-    if (increaseSound) {
-      const status = await increaseSound.getStatusAsync();
-      if (status.isLoaded) {
-        await increaseSound.setPositionAsync(0);
-        await increaseSound.playAsync();
-      } else {
-        console.log('Increase sound not loaded, reinitializing...');
-        await initializeSounds();
-        if (increaseSound) {
-          await increaseSound.playAsync();
-        }
-      }
-    } else {
-      // Initialize if not done yet
-      await initializeSounds();
-      if (increaseSound) {
-        await increaseSound.playAsync();
-      }
-    }
-  } catch (error) {
-    console.error('Error playing increase sound:', error);
-  }
-}
-
-/**
- * Play decrease sound (lower pitch)
- */
-export async function playDecreaseSound() {
-  try {
-    // Always provide haptic feedback
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
-    // Try to play sound
-    if (decreaseSound) {
-      const status = await decreaseSound.getStatusAsync();
-      if (status.isLoaded) {
-        await decreaseSound.setPositionAsync(0);
-        await decreaseSound.playAsync();
-      } else {
-        console.log('Decrease sound not loaded, reinitializing...');
-        await initializeSounds();
-        if (decreaseSound) {
-          await decreaseSound.playAsync();
-        }
-      }
-    } else {
-      // Initialize if not done yet
-      await initializeSounds();
-      if (decreaseSound) {
-        await decreaseSound.playAsync();
-      }
-    }
-  } catch (error) {
-    console.error('Error playing decrease sound:', error);
-  }
-}
-
-/**
- * Cleanup sounds
+ * Cleanup (no-op, but kept for compatibility)
  */
 export async function cleanupSounds() {
-  try {
-    if (increaseSound) {
-      await increaseSound.unloadAsync();
-      increaseSound = null;
-    }
-    if (decreaseSound) {
-      await decreaseSound.unloadAsync();
-      decreaseSound = null;
-    }
-  } catch (error) {
-    // Silently ignore errors
-  }
+  // Nothing to cleanup
 }
 
