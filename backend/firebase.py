@@ -230,18 +230,26 @@ class FirebaseCartManager:
             normalized_item_label = self._normalize_label(item_label)
             if normalized_label == normalized_item_label:
                 item_found = True
+                old_quantity = items[i].get('quantity', 1)
                 # Increment quantity
-                items[i]['quantity'] = items[i].get('quantity', 1) + 1
+                items[i]['quantity'] = old_quantity + 1
                 items[i]['updated_at'] = datetime.now().isoformat()
                 items[i]['action'] = 'add'
+                items[i]['sound_trigger'] = 'increase'  # Signal frontend to play increase sound
+                items[i]['quantity_changed'] = True
+                print(f"🔊 Sound trigger: INCREASE - {label} quantity: {old_quantity} -> {old_quantity + 1}")
                 break
             # Priority 2: Match by barcode if both have barcodes AND they match (for exact same product)
             elif barcode and item.get('barcode') == barcode:
                 item_found = True
+                old_quantity = items[i].get('quantity', 1)
                 # Increment quantity
-                items[i]['quantity'] = items[i].get('quantity', 1) + 1
+                items[i]['quantity'] = old_quantity + 1
                 items[i]['updated_at'] = datetime.now().isoformat()
                 items[i]['action'] = 'add'
+                items[i]['sound_trigger'] = 'increase'  # Signal frontend to play increase sound
+                items[i]['quantity_changed'] = True
+                print(f"🔊 Sound trigger: INCREASE - {label} (barcode match) quantity: {old_quantity} -> {old_quantity + 1}")
                 break
         
         # If item not found, create new item with quantity 1
@@ -258,8 +266,11 @@ class FirebaseCartManager:
                 'timestamp': datetime.now().isoformat(),
                 'updated_at': datetime.now().isoformat(),
                 'action': 'add',
-                'quantity': 1
+                'quantity': 1,
+                'sound_trigger': 'increase',  # Signal frontend to play increase sound (new item)
+                'quantity_changed': True
             }
+            print(f"🔊 Sound trigger: INCREASE - {label} (new item) quantity: 0 -> 1")
             
             # Add barcode if provided
             if barcode:
@@ -324,8 +335,14 @@ class FirebaseCartManager:
                     items[i]['quantity'] = current_quantity - 1
                     items[i]['updated_at'] = datetime.now().isoformat()
                     items[i]['action'] = 'delete'
+                    items[i]['sound_trigger'] = 'decrease'  # Signal frontend to play decrease sound
+                    items[i]['quantity_changed'] = True
+                    print(f"🔊 Sound trigger: DECREASE - {label} quantity: {current_quantity} -> {current_quantity - 1}")
                 else:
                     # Remove item if quantity reaches 0
+                    items[i]['sound_trigger'] = 'decrease'  # Signal frontend to play decrease sound
+                    items[i]['quantity_changed'] = True
+                    print(f"🔊 Sound trigger: DECREASE - {label} quantity: {current_quantity} -> 0 (removed)")
                     items.pop(i)
                 
                 break
@@ -340,8 +357,14 @@ class FirebaseCartManager:
                     items[i]['quantity'] = current_quantity - 1
                     items[i]['updated_at'] = datetime.now().isoformat()
                     items[i]['action'] = 'delete'
+                    items[i]['sound_trigger'] = 'decrease'  # Signal frontend to play decrease sound
+                    items[i]['quantity_changed'] = True
+                    print(f"🔊 Sound trigger: DECREASE - {label} (barcode match) quantity: {current_quantity} -> {current_quantity - 1}")
                 else:
                     # Remove item if quantity reaches 0
+                    items[i]['sound_trigger'] = 'decrease'  # Signal frontend to play decrease sound
+                    items[i]['quantity_changed'] = True
+                    print(f"🔊 Sound trigger: DECREASE - {label} (barcode match) quantity: {current_quantity} -> 0 (removed)")
                     items.pop(i)
                 
                 break
