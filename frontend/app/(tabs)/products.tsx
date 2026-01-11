@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
+import * as Haptics from 'expo-haptics';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -15,6 +16,7 @@ import type { Product } from '@/contexts/CartContext';
 import { listenToCart } from '@/utilities/firebase-db';
 import type { Cart } from '@/utilities/firebase-db';
 import { LOCAL_IP } from '@/config/api';
+import { initializeSounds, playIncreaseSound, playDecreaseSound, cleanupSounds } from '@/utilities/sounds';
 
 /**
  * Scanned Products Screen
@@ -33,6 +35,15 @@ export default function ProductsScreen() {
   const { products, setProducts, updateProductQuantity, removeProduct, getSubtotal, sessionId } = useCart();
 
   console.warn('🔴🔴🔴 ProductsScreen RENDERED with sessionId:', sessionId);
+
+  // Initialize sound effects
+  useEffect(() => {
+    initializeSounds();
+
+    return () => {
+      cleanupSounds();
+    };
+  }, []);
 
   // Set up Firebase listener for real-time cart updates
   useEffect(() => {
@@ -125,6 +136,16 @@ export default function ProductsScreen() {
         ]
       );
     } else {
+      // Play sound and haptic feedback based on change direction
+      if (change > 0) {
+        // Increase: Higher pitch ding + light haptic
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        playIncreaseSound();
+      } else {
+        // Decrease: Lower pitch + medium haptic
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        playDecreaseSound();
+      }
       updateProductQuantity(product.id, newQuantity);
     }
   };
