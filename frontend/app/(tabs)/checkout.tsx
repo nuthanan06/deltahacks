@@ -1,10 +1,13 @@
 import { StyleSheet, TouchableOpacity, ScrollView, View, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useCart } from '@/contexts/CartContext';
 import { LOCAL_IP } from '@/config/api';
+import { listenToCart } from '@/utilities/firebase-db';
+import type { Cart } from '@/utilities/firebase-db';
 
 /**
  * Checkout Screen
@@ -31,20 +34,53 @@ export default function CheckoutScreen() {
     sessionId,
   } = useCart();
 
+  // Get total price from Firebase
+  const [firebaseCart, setFirebaseCart] = useState<Cart | null>(null);
+  const [firebaseTotalPrice, setFirebaseTotalPrice] = useState<number>(0);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setFirebaseCart(null);
+      setFirebaseTotalPrice(0);
+      return;
+    }
+
+    const unsubscribe = listenToCart(sessionId, (cart: Cart | null) => {
+      console.log('Checkout - Firebase cart update:', cart);
+      setFirebaseCart(cart);
+      if (cart) {
+        setFirebaseTotalPrice(cart.totalPrice || 0);
+        console.log('Checkout - Firebase totalPrice:', cart.totalPrice);
+      } else {
+        setFirebaseTotalPrice(0);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [sessionId]);
+
   const formatPrice = (price: number) => {
-    console.log('formatPrice called with:', price);
     if (isNaN(price) || price === null || price === undefined) {
-      console.warn('Invalid price value:', price);
       return '$0.00';
     }
     return `$${price.toFixed(2)}`;
   };
 
-  // Debug: Log cart state
-  console.log('Checkout - Products:', products);
-  console.log('Checkout - Subtotal:', getSubtotal());
-  console.log('Checkout - Tax:', getTax());
-  console.log('Checkout - Total:', getTotal());
+  // Use Firebase total_price directly (backend calculates sum of item prices)
+  // Note: Firebase total_price is the sum of all item prices, not including tax
+  const firebaseSubtotal = firebaseTotalPrice > 0 ? firebaseTotalPrice : getSubtotal();
+  const firebaseTax = firebaseSubtotal * 0.13; // Calculate 13% tax
+  const firebaseTotal = firebaseSubtotal + firebaseTax;
+  
+  // Use Firebase values if available, otherwise fall back to calculated values
+  const displaySubtotal = firebaseSubtotal;
+  const displayTax = firebaseTax;
+  const displayTotal = firebaseTotal;
+  
+  console.log('Checkout - Firebase totalPrice:', firebaseTotalPrice);
+  console.log('Checkout - Display Subtotal:', displaySubtotal);
+  console.log('Checkout - Display Tax:', displayTax);
+  console.log('Checkout - Display Total:', displayTotal);
 
   /**
    * Mock Stripe payment function
@@ -166,12 +202,12 @@ export default function CheckoutScreen() {
         <View style={styles.section}>
           <View style={styles.summaryRow}>
             <ThemedText>Subtotal:</ThemedText>
-            <ThemedText>{formatPrice(getSubtotal())}</ThemedText>
+            <ThemedText>{formatPrice(displaySubtotal)}</ThemedText>
           </View>
 
           <View style={styles.summaryRow}>
             <ThemedText>Tax (13%):</ThemedText>
-            <ThemedText>{formatPrice(getTax())}</ThemedText>
+            <ThemedText>{formatPrice(displayTax)}</ThemedText>
           </View>
 
           <View style={[styles.summaryRow, styles.totalRow]}>
@@ -179,7 +215,7 @@ export default function CheckoutScreen() {
               Total:
             </ThemedText>
             <ThemedText type="defaultSemiBold" style={styles.totalAmount}>
-              {formatPrice(getTotal())}
+              {formatPrice(displayTotal)}
             </ThemedText>
           </View>
         </View>
