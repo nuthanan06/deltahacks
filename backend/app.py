@@ -8,9 +8,18 @@ import io
 import base64
 import secrets
 import uuid
+import importlib.util
+import os
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
+
+# Import Stripe blueprint from local stripe.py file (avoiding conflict with stripe package)
+stripe_file_path = os.path.join(os.path.dirname(__file__), 'stripe.py')
+spec = importlib.util.spec_from_file_location("stripe_routes", stripe_file_path)
+stripe_routes = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(stripe_routes)
+app.register_blueprint(stripe_routes.stripe_bp)
 
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]

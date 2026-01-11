@@ -3,3 +3,4 @@ flask-cors
 pymongo 
 python-dotenv
 qrcode[pil]
+stripe>=7.0.0

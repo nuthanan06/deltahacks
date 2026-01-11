@@ -1,26 +1,27 @@
 import { StyleSheet, TouchableOpacity, ScrollView, View, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-
+import { useStripe } from '@stripe/stripe-react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useCart } from '@/contexts/CartContext';
+import { processPaymentWithSheet, dollarsToCents } from '@/services/stripe';
+import { useState } from 'react';
 
 /**
- * Checkout Screen
+ * Checkout Screen with Stripe Payment Integration
  * 
- * Displays a summary of scanned products, subtotal, tax, and total.
- * Includes a button to proceed with payment.
+ * Displays order summary and processes payments using Stripe Payment Sheet.
  * 
- * TODO: Integrate Stripe payment processing:
- * - Install @stripe/stripe-react-native
- * - Initialize Stripe with publishable key
- * - Create payment intent via backend API
- * - Use Stripe Payment Sheet or similar component
- * - Handle payment success/failure callbacks
- * - Update order status in Firebase
+ * Features:
+ * - Shows scanned products with quantities and prices
+ * - Calculates subtotal, tax (13%), and total
+ * - Integrates Stripe Payment Sheet for secure payments
+ * - Handles payment success/failure
+ * - Clears cart and navigates on successful payment
  */
 export default function CheckoutScreen() {
   const router = useRouter();
+  const stripe = useStripe();
   const {
     products,
     getSubtotal,
@@ -29,61 +30,92 @@ export default function CheckoutScreen() {
     clearCart,
     sessionId,
   } = useCart();
+  
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const formatPrice = (price: number) => {
     return `$${price.toFixed(2)}`;
   };
 
   /**
-   * Mock Stripe payment function
+   * Handle Stripe payment processing
    * 
-   * TODO: Replace with real Stripe integration:
-   * 1. Call backend API to create payment intent
-   * 2. Initialize Stripe Payment Sheet with payment intent
-   * 3. Present payment sheet to user
-   * 4. Handle payment confirmation
-   * 5. On success:
-   *    - Save order to Firebase
-   *    - Clear cart
-   *    - Navigate to success screen
-   * 6. On failure:
-   *    - Show error message
-   *    - Allow retry
+   * Flow:
+   * 1. Convert total amount to cents
+   * 2. Create payment metadata with session and product info
+   * 3. Initialize and present Stripe Payment Sheet
+   * 4. On success: clear cart and navigate to home
+   * 5. On failure: show error message
    */
   const handlePayment = async () => {
+    if (products.length === 0) {
+      Alert.alert('Empty Cart', 'Please add items to your cart before checking out.');
+      return;
+    }
+
+    setIsProcessing(true);
+
     try {
-      // Mock payment processing delay
-      Alert.alert(
-        'Processing Payment',
-        'This is a placeholder. Real Stripe integration will be added here.',
-        [
-          {
-            text: 'Simulate Success',
-            onPress: () => {
-              // Mock successful payment
-              Alert.alert(
-                'Payment Successful!',
-                `Your order total of ${formatPrice(getTotal())} has been processed.`,
-                [
-                  {
-                    text: 'OK',
-                    onPress: () => {
-                      clearCart();
-                      router.push("/(tabs)");
-                    },
-                  },
-                ]
-              );
-            },
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-        ]
+      const totalAmount = getTotal();
+      const amountInCents = dollarsToCents(totalAmount);
+
+      // Create metadata for the payment
+      const metadata: Record<string, string> = {
+        sessionId: sessionId || 'unknown',
+        itemCount: products.length.toString(),
+        subtotal: getSubtotal().toFixed(2),
+        tax: getTax().toFixed(2),
+        total: totalAmount.toFixed(2),
+        // Add product details (limited by Stripe's metadata size limits)
+        products: JSON.stringify(
+          products.map(p => ({
+            name: p.name,
+            quantity: p.quantity,
+            price: p.price,
+          }))
+        ).substring(0, 500), // Stripe metadata value limit
+      };
+
+      // Process payment using Stripe Payment Sheet
+      const result = await processPaymentWithSheet(
+        stripe,
+        amountInCents,
+        'cad',
+        metadata,
+        'DeltaHacks Self-Checkout'
       );
+
+      if (result.success) {
+        // Payment succeeded
+        Alert.alert(
+          'Payment Successful! 🎉',
+          `Your order of ${formatPrice(totalAmount)} has been processed.\n\nPayment ID: ${result.paymentIntentId}`,
+          [
+            {
+              text: 'Done',
+              onPress: () => {
+                clearCart();
+                router.push('/(tabs)');
+              },
+            },
+          ]
+        );
+      } else {
+        // Payment failed or was cancelled
+        Alert.alert(
+          'Payment Failed',
+          result.error || 'The payment could not be processed. Please try again.',
+          [{ text: 'OK' }]
+        );
+      }
     } catch (error) {
-      Alert.alert('Payment Error', 'An error occurred during payment processing.');
+      console.error('Payment error:', error);
+      Alert.alert(
+        'Payment Error',
+        error instanceof Error ? error.message : 'An unexpected error occurred during payment processing.'
+      );
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -100,28 +132,32 @@ export default function CheckoutScreen() {
         )}
       </ThemedView>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content}>
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle" style={styles.sectionTitle}>
             Order Summary
           </ThemedText>
 
-          {products.map((product) => (
-            <View key={product.id} style={styles.orderItem}>
-              <View style={styles.orderItemInfo}>
-                <ThemedText type="defaultSemiBold">{product.name}</ThemedText>
-                <ThemedText style={styles.orderItemQuantity}>
-                  Qty: {product.quantity} × {formatPrice(product.price)}
+          {products.length === 0 ? (
+            <ThemedText style={styles.emptyCart}>
+              Your cart is empty
+            </ThemedText>
+          ) : (
+            products.map((product, index) => (
+              <View key={`${product.name}-${index}`} style={styles.orderItem}>
+                <View style={styles.orderItemInfo}>
+                  <ThemedText type="defaultSemiBold">{product.name}</ThemedText>
+                  <ThemedText style={styles.orderItemQuantity}>
+                    Qty: {product.quantity} × {formatPrice(product.price)}
+                  </ThemedText>
+                </View>
+                <ThemedText type="defaultSemiBold">
+                  {formatPrice(product.price * product.quantity)}
                 </ThemedText>
               </View>
-              <ThemedText type="defaultSemiBold">
-                {formatPrice(product.price * product.quantity)}
-              </ThemedText>
-            </View>
-          ))}
-        </ThemedView>
+            ))
+          )}
 
-        <ThemedView style={styles.section}>
           <View style={styles.summaryRow}>
             <ThemedText>Subtotal:</ThemedText>
             <ThemedText>{formatPrice(getSubtotal())}</ThemedText>
@@ -144,18 +180,22 @@ export default function CheckoutScreen() {
 
         <ThemedView style={styles.noteSection}>
           <ThemedText style={styles.note}>
-            Note: Payment processing is mocked. Stripe integration will be added here.
+            💳 Secure payment powered by Stripe
           </ThemedText>
         </ThemedView>
       </ScrollView>
 
       <ThemedView style={styles.footer}>
         <TouchableOpacity
-          style={styles.paymentButton}
+          style={[
+            styles.paymentButton,
+            (isProcessing || products.length === 0) && styles.paymentButtonDisabled,
+          ]}
           onPress={handlePayment}
-          activeOpacity={0.7}>
+          disabled={isProcessing || products.length === 0}
+        >
           <ThemedText style={styles.paymentButtonText}>
-            Proceed with Payment
+            {isProcessing ? 'Processing...' : `Pay ${formatPrice(getTotal())}`}
           </ThemedText>
         </TouchableOpacity>
       </ThemedView>
@@ -191,6 +231,11 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     marginBottom: 16,
+  },
+  emptyCart: {
+    textAlign: 'center',
+    opacity: 0.6,
+    paddingVertical: 20,
   },
   orderItem: {
     flexDirection: 'row',
@@ -247,10 +292,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
+  paymentButtonDisabled: {
+    backgroundColor: '#ccc',
+    opacity: 0.6,
+  },
   paymentButtonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
   },
 });
-
