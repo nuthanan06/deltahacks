@@ -182,8 +182,8 @@ export default function QRCodeScreen() {
               setSessionId(pairData.session_id);
               // Small delay to allow state to update before navigation
               setTimeout(() => {
-                // Navigate to products screen
-                router.push('/(tabs)/products');
+                // Navigate to camera screen to start streaming frames
+                router.push(`/(tabs)/camera?sessionId=${pairData.session_id}`);
               }, 100);
               // Reset processing state after navigation
               setTimeout(() => {

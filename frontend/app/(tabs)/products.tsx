@@ -57,30 +57,13 @@ export default function ProductsScreen() {
       }
 
       // Transform Firebase items to Product format
-      // Group items by product_name and count quantity
-      const productMap = new Map<string, Product>();
-
-      cart.items.forEach((item: any) => {
-        // Use name or label as the key
-        const productKey = item.name || item.label || 'Unknown Product';
-        
-        if (productMap.has(productKey)) {
-          // Increment quantity if product already exists
-          const existing = productMap.get(productKey)!;
-          existing.quantity += 1;
-        } else {
-          // Create new product entry
-          productMap.set(productKey, {
-            id: item.id || `${productKey}_${Date.now()}`,
-            name: productKey,
-            price: item.price || 0,
-            quantity: 1,
-          });
-        }
-      });
-
-      // Convert map to array
-      const productsArray = Array.from(productMap.values());
+      // Each Firebase item becomes a separate frontend item with its quantity
+      const productsArray: Product[] = cart.items.map((item: any) => ({
+        id: item.id || `${item.name || item.label}_${Date.now()}`,
+        name: item.name || item.label || 'Unknown Product',
+        price: item.price || 0,
+        quantity: item.quantity || 1, // Use the quantity field from Firebase
+      }));
       console.log('ProductsScreen: Updated products:', productsArray);
       setProducts(productsArray);
     });
@@ -98,19 +81,31 @@ export default function ProductsScreen() {
       return;
     }
     
+    console.warn('🔴 handleCheckout: Starting checkout process');
+    
     // Call backend to mark session as completed and stop webcam
     if (sessionId) {
       try {
+        console.warn(`🟡 handleCheckout: Calling checkout endpoint for sessionId: ${sessionId}`);
         const API_BASE_URL = 'http://localhost:5001';
-        await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/checkout`, {
+        const checkoutUrl = `${API_BASE_URL}/api/sessions/${sessionId}/checkout`;
+        console.warn(`🟡 handleCheckout: URL: ${checkoutUrl}`);
+        
+        const response = await fetch(checkoutUrl, {
           method: 'PUT',
         });
-        console.log('Webcam stopped for session:', sessionId);
+        console.warn(`🟡 handleCheckout: Response status: ${response.status}`);
+        
+        const data = await response.json();
+        console.warn('✅ handleCheckout: Webcam stopped for session:', data);
       } catch (error) {
-        console.error('Error stopping webcam:', error);
+        console.error('❌ handleCheckout: Error stopping webcam:', error);
       }
+    } else {
+      console.warn('⚠️ handleCheckout: No sessionId available');
     }
     
+    console.warn('🟡 handleCheckout: Navigating to checkout screen');
     router.push('/(tabs)/checkout');
   };
 
