@@ -57,30 +57,13 @@ export default function ProductsScreen() {
       }
 
       // Transform Firebase items to Product format
-      // Group items by product_name and count quantity
-      const productMap = new Map<string, Product>();
-
-      cart.items.forEach((item: any) => {
-        // Use name or label as the key
-        const productKey = item.name || item.label || 'Unknown Product';
-        
-        if (productMap.has(productKey)) {
-          // Increment quantity if product already exists
-          const existing = productMap.get(productKey)!;
-          existing.quantity += 1;
-        } else {
-          // Create new product entry
-          productMap.set(productKey, {
-            id: item.id || `${productKey}_${Date.now()}`,
-            name: productKey,
-            price: item.price || 0,
-            quantity: 1,
-          });
-        }
-      });
-
-      // Convert map to array
-      const productsArray = Array.from(productMap.values());
+      // Each Firebase item becomes a separate frontend item with its quantity
+      const productsArray: Product[] = cart.items.map((item: any) => ({
+        id: item.id || `${item.name || item.label}_${Date.now()}`,
+        name: item.name || item.label || 'Unknown Product',
+        price: item.price || 0,
+        quantity: item.quantity || 1, // Use the quantity field from Firebase
+      }));
       console.log('ProductsScreen: Updated products:', productsArray);
       setProducts(productsArray);
     });
