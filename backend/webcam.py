@@ -33,9 +33,9 @@ class CartTrackerWebcam:
         model_path="yolov8n.pt",
         camera_index=None,
         output_folder="detected_items",
-        frame_threshold=10,
+        frame_threshold=5,
         direction_threshold=30,
-        history_size=50,
+        history_size=10,
         recent_frames=19,
         approved_labels=None,
         use_phone_camera=False

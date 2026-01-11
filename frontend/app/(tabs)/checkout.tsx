@@ -4,16 +4,22 @@ import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useCart } from '@/contexts/CartContext';
-import { useStripe } from '@stripe/stripe-react-native';
-import { initializeStripe, processPaymentWithSheet, dollarsToCents } from '@/services/stripe';
-import { useEffect } from 'react';
-const { initPaymentSheet, presentPaymentSheet } = useStripe();
+import { LOCAL_IP } from '@/config/api';
 
-
-useEffect(() => {
-  initializeStripe().catch((err) => console.error('Stripe init error:', err));
-}, []);
-
+/**
+ * Checkout Screen
+ * 
+ * Displays a summary of scanned products, subtotal, tax, and total.
+ * Includes a button to proceed with payment.
+ * 
+ * TODO: Integrate Stripe payment processing:
+ * - Install @stripe/stripe-react-native
+ * - Initialize Stripe with publishable key
+ * - Create payment intent via backend API
+ * - Use Stripe Payment Sheet or similar component
+ * - Handle payment success/failure callbacks
+ * - Update order status in Firebase
+ */
 export default function CheckoutScreen() {
   const router = useRouter();
   const {
@@ -46,47 +52,14 @@ export default function CheckoutScreen() {
    *    - Allow retry
    */
   const handlePayment = async () => {
-    if (products.length === 0) {
-      Alert.alert('Cart Empty', 'Please add products before checking out.');
-      return;
-    }
-  
     try {
-      // Convert total to cents for Stripe
-      const amountInCents = dollarsToCents(getTotal());
-  
-      // Process payment using Stripe Payment Sheet
-      const result = await processPaymentWithSheet(
-        { initPaymentSheet, presentPaymentSheet },
-        amountInCents,
-        'cad', // or 'cad' depending on your backend
-        'QuickCart' // merchant display name
-      );
-  
-      if (result.success) {
-        Alert.alert(
-          'Payment Successful!',
-          `Your order total of $${getTotal().toFixed(2)} has been processed.`,
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                clearCart();
-                router.push('/(tabs)'); // navigate to home or success page
-              },
-            },
-          ]
-        );
-      } else {
-        Alert.alert('Payment Failed', result.error || 'Something went wrong. Please try again.');
-      }
-  
+      console.warn('🔴 handlePayment: Starting payment process');
+      
       // Call backend to stop webcam and mark session as completed
       if (sessionId) {
         try {
           console.warn(`🟡 handlePayment: Calling checkout endpoint for sessionId: ${sessionId}`);
-          const API_BASE_URL = 'http://localhost:5001';
-          const checkoutUrl = `${API_BASE_URL}/api/sessions/${sessionId}/checkout`;
+          const checkoutUrl = `${LOCAL_IP}/api/sessions/${sessionId}/checkout`;
           console.warn(`🟡 handlePayment: URL: ${checkoutUrl}`);
           
           const response = await fetch(checkoutUrl, {
@@ -102,12 +75,39 @@ export default function CheckoutScreen() {
       } else {
         console.warn('⚠️ handlePayment: No sessionId available');
       }
-    } catch (error) {
-      console.error('Payment error:', error);
+      
+      // Mock payment processing delay
       Alert.alert(
-        'Payment Error',
-        error instanceof Error ? error.message : 'An unexpected error occurred.'
+        'Processing Payment',
+        'This is a placeholder. Real Stripe integration will be added here.',
+        [
+          {
+            text: 'Simulate Success',
+            onPress: () => {
+              // Mock successful payment
+              Alert.alert(
+                'Payment Successful!',
+                `Your order total of ${formatPrice(getTotal())} has been processed.`,
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => {
+                      clearCart();
+                      router.push("/(tabs)");
+                    },
+                  },
+                ]
+              );
+            },
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+        ]
       );
+    } catch (error) {
+      Alert.alert('Payment Error', 'An error occurred during payment processing.');
     }
   };
 

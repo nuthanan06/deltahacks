@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
+import * as Haptics from 'expo-haptics';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -14,6 +15,8 @@ import { useCart } from '@/contexts/CartContext';
 import type { Product } from '@/contexts/CartContext';
 import { listenToCart } from '@/utilities/firebase-db';
 import type { Cart } from '@/utilities/firebase-db';
+import { LOCAL_IP } from '@/config/api';
+import { initializeSounds, playIncreaseSound, playDecreaseSound, cleanupSounds } from '@/utilities/sounds';
 
 /**
  * Scanned Products Screen
@@ -32,6 +35,15 @@ export default function ProductsScreen() {
   const { products, setProducts, updateProductQuantity, removeProduct, getSubtotal, sessionId } = useCart();
 
   console.warn('🔴🔴🔴 ProductsScreen RENDERED with sessionId:', sessionId);
+
+  // Initialize sound effects
+  useEffect(() => {
+    initializeSounds();
+
+    return () => {
+      cleanupSounds();
+    };
+  }, []);
 
   // Set up Firebase listener for real-time cart updates
   useEffect(() => {
@@ -87,8 +99,7 @@ export default function ProductsScreen() {
     if (sessionId) {
       try {
         console.warn(`🟡 handleCheckout: Calling checkout endpoint for sessionId: ${sessionId}`);
-        const API_BASE_URL = 'http://localhost:5001';
-        const checkoutUrl = `${API_BASE_URL}/api/sessions/${sessionId}/checkout`;
+        const checkoutUrl = `${LOCAL_IP}/api/sessions/${sessionId}/checkout`;
         console.warn(`🟡 handleCheckout: URL: ${checkoutUrl}`);
         
         const response = await fetch(checkoutUrl, {
@@ -125,6 +136,14 @@ export default function ProductsScreen() {
         ]
       );
     } else {
+      // Play sound and haptic feedback based on change direction
+      if (change > 0) {
+        // Increase: Higher pitch ding + light haptic
+        playIncreaseSound();
+      } else {
+        // Decrease: Lower pitch + medium haptic
+        playDecreaseSound();
+      }
       updateProductQuantity(product.id, newQuantity);
     }
   };
