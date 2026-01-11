@@ -163,9 +163,9 @@ class FirebaseCartManager:
     
     def add_item(self, session_id: str, label: str, image_path: Optional[str] = None, image_url: Optional[str] = None,
                  confidence: float = 1.0, product_name: Optional[str] = None, 
-                 price: Optional[float] = None, metadata: Optional[Dict] = None) -> str:
+                 price: Optional[float] = None, metadata: Optional[Dict] = None, barcode: Optional[str] = None) -> str:
         """
-        Add an item to a cart.
+        Add an item to a cart. If item already exists, increment its quantity.
         
         Args:
             session_id: Unique identifier for the cart
@@ -176,9 +176,10 @@ class FirebaseCartManager:
             product_name: Human-readable product name (e.g., 'Organic Banana')
             price: Price of the item
             metadata: Additional item metadata
+            barcode: Barcode of the item
         
         Returns:
-            Document ID of the created item
+            Document ID of the created/updated item
         """
         # Determine image URL: prefer provided URL, else upload from path
         final_image_url = image_url
@@ -186,12 +187,38 @@ class FirebaseCartManager:
             filename = os.path.basename(image_path)
             final_image_url = self.upload_image_to_storage(image_path, session_id, filename)
         
-        # Update cart: increment totals and add item to items list
-        cart_ref = self.db.collection(self.carts_collection).document(session_id)
-        cart_ref.update({
-            'total_items': firestore.Increment(1),
-            'total_price': firestore.Increment(price or 0.0),
-            'items': firestore.ArrayUnion([{
+        # Get current cart to check for existing items
+        cart = self.get_cart(session_id)
+        if not cart:
+            # Create cart if it doesn't exist
+            self.create_cart(session_id)
+            cart = self.get_cart(session_id)
+        
+        items = cart.get('items', [])
+        item_found = False
+        
+        # Check if item already exists (by barcode if available, otherwise by label)
+        for i, item in enumerate(items):
+            # Match by barcode if both have barcodes
+            if barcode and item.get('barcode') == barcode:
+                item_found = True
+                # Increment quantity
+                items[i]['quantity'] = items[i].get('quantity', 1) + 1
+                items[i]['updated_at'] = datetime.now().isoformat()
+                items[i]['action'] = 'add'
+                break
+            # Match by label if no barcode or barcode doesn't match
+            elif not barcode and item.get('label') == label:
+                item_found = True
+                # Increment quantity
+                items[i]['quantity'] = items[i].get('quantity', 1) + 1
+                items[i]['updated_at'] = datetime.now().isoformat()
+                items[i]['action'] = 'add'
+                break
+        
+        # If item not found, create new item with quantity 1
+        if not item_found:
+            item_data = {
                 'item_id': f"{label}_{datetime.now().timestamp()}",
                 'label': label,
                 'product_name': product_name or label.title(),
@@ -199,8 +226,27 @@ class FirebaseCartManager:
                 'confidence': confidence,
                 'image_url': final_image_url,
                 'timestamp': datetime.now().isoformat(),
-                'action': 'add'
-            }]),
+                'updated_at': datetime.now().isoformat(),
+                'action': 'add',
+                'quantity': 1
+            }
+            
+            # Add barcode if provided
+            if barcode:
+                item_data['barcode'] = barcode
+            
+            # Add metadata if provided
+            if metadata:
+                item_data.update(metadata)
+            
+            items.append(item_data)
+        
+        # Update cart: increment totals and update items list
+        cart_ref = self.db.collection(self.carts_collection).document(session_id)
+        cart_ref.update({
+            'total_items': firestore.Increment(1),
+            'total_price': firestore.Increment(price or 0.0),
+            'items': items,
             'updated_at': firestore.SERVER_TIMESTAMP
         })
         
@@ -208,9 +254,9 @@ class FirebaseCartManager:
     
     def remove_item(self, session_id: str, label: str, image_path: Optional[str] = None,
                    product_name: Optional[str] = None, price: Optional[float] = None,
-                   metadata: Optional[Dict] = None) -> str:
+                   metadata: Optional[Dict] = None, barcode: Optional[str] = None) -> str:
         """
-        Remove the first occurrence of an item from a cart.
+        Decrement quantity of an item in a cart. If quantity reaches 0, remove the item.
         
         Args:
             session_id: Unique identifier for the cart
@@ -219,25 +265,65 @@ class FirebaseCartManager:
             product_name: Human-readable product name
             price: Price of the item being removed
             metadata: Additional metadata
+            barcode: Barcode of the item
         
         Returns:
             Success message
         """
-        # Update cart total and price
-        self._update_cart_total(session_id, increment=-1, price_increment=-(price or 0.0))
-        
-        # Remove first occurrence of the item from the items array
         cart = self.get_cart(session_id)
-        if cart and 'items' in cart:
-            items = cart['items']
-            for i, item in enumerate(items):
-                if item['label'] == label:
+        if not cart or 'items' not in cart:
+            return f"{label}_not_found"
+        
+        items = cart['items']
+        item_found = False
+        item_price = price or 0.0
+        
+        # Find the item (by barcode if available, otherwise by label)
+        for i, item in enumerate(items):
+            # Match by barcode if both have barcodes
+            if barcode and item.get('barcode') == barcode:
+                item_found = True
+                current_quantity = item.get('quantity', 1)
+                item_price = item.get('price', price or 0.0)
+                
+                # Decrement quantity
+                if current_quantity > 1:
+                    items[i]['quantity'] = current_quantity - 1
+                    items[i]['updated_at'] = datetime.now().isoformat()
+                    items[i]['action'] = 'delete'
+                else:
+                    # Remove item if quantity reaches 0
                     items.pop(i)
-                    break
-            self.db.collection(self.carts_collection).document(session_id).update({
-                'items': items,
-                'updated_at': firestore.SERVER_TIMESTAMP
-            })
+                
+                break
+            # Match by label if no barcode or barcode doesn't match
+            elif not barcode and item.get('label') == label:
+                item_found = True
+                current_quantity = item.get('quantity', 1)
+                item_price = item.get('price', price or 0.0)
+                
+                # Decrement quantity
+                if current_quantity > 1:
+                    items[i]['quantity'] = current_quantity - 1
+                    items[i]['updated_at'] = datetime.now().isoformat()
+                    items[i]['action'] = 'delete'
+                else:
+                    # Remove item if quantity reaches 0
+                    items.pop(i)
+                
+                break
+        
+        if not item_found:
+            return f"{label}_not_found"
+        
+        # Update cart: decrement totals and update items list
+        cart_ref = self.db.collection(self.carts_collection).document(session_id)
+        cart_ref.update({
+            'total_items': firestore.Increment(-1),
+            'total_price': firestore.Increment(-item_price),
+            'items': items,
+            'updated_at': firestore.SERVER_TIMESTAMP
+        })
         
         return f"{label}_removed"
     

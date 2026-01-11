@@ -6,3 +6,11 @@ qrcode[pil]
 ultralytics
 opencv-python
 firebase-admin
+requests
+# For image similarity search (query.py)
+torch
+torchvision
+open-clip-torch
+faiss-cpu
+pillow
+numpy

@@ -2,10 +2,25 @@ from ultralytics import YOLO
 import cv2
 from collections import defaultdict, deque
 import os
+import sys
+import requests
 from datetime import datetime
 from urllib.parse import quote
 from firebase import FirebaseCartManager
 from firebase_admin import storage
+
+# Import query function from data_compilation
+query_module_path = os.path.join(os.path.dirname(__file__), "data_ compilation", "query.py")
+if os.path.exists(query_module_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("query_module", query_module_path)
+    query_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(query_module)
+    query_image = query_module.query_image
+    print("✓ Loaded query_image function")
+else:
+    print(f"Warning: query.py not found at {query_module_path}")
+    query_image = None
 
 
 class CartTrackerWebcam:
@@ -51,6 +66,9 @@ class CartTrackerWebcam:
         self.frame_history = deque(maxlen=self.HISTORY_SIZE)
         self.manager = FirebaseCartManager(credentials_path="credentials.json")
         self.ensure_cart_exists()
+        
+        # API base URL for price lookup
+        self.api_base_url = os.getenv("API_BASE_URL", "http://localhost:5001")
 
     #=============================
     # State management methods
@@ -171,7 +189,8 @@ class CartTrackerWebcam:
                             print(f"   Saved to: {filepath}")
                             # Upload crop to Storage and store URL
                             image_url = self.upload_crop_to_storage(filepath)
-                            self.add_item_to_firebase(label, image_url=image_url)
+                            # Query image for barcode and get price before adding to Firebase
+                            self.add_item_to_firebase(label, image_path=filepath, image_url=image_url)
                         else:
                             self.add_item_to_firebase(label)
                 
@@ -195,21 +214,141 @@ class CartTrackerWebcam:
     #=============================
     # Firebase interaction methods
     #=============================
-    def add_item_to_firebase(self, label, image_url=None):
-        """Add confirmed item to Firebase cart."""
-        item_id = self.manager.add_item(
-            session_id=self.sessionId,
-            label=label,
-            image_url=image_url,
-            price=0.0,  # Price can be set later
-            product_name=label.capitalize(),
-            confidence=1.0  # Placeholder confidence
-        )
-        print(f"✓ Item added to Firebase: {item_id} ({label})")
+    def get_barcode_from_image(self, image_path: str):
+        """Query image to get barcode using CLIP similarity search."""
+        if query_image is None:
+            print("Warning: query_image not available, skipping barcode lookup")
+            return None
+        
+        try:
+            print(f"Querying image for barcode: {image_path}")
+            results = query_image(image_path, top_k=1)
+            if results and len(results) > 0:
+                barcode = results[0].get('barcode')
+                score = results[0].get('score', 0)
+                name = results[0].get('name', 'Unknown')
+                print(f"  Found match: barcode={barcode}, name={name}, score={score:.3f}")
+                return barcode
+            else:
+                print("  No matches found in product database")
+                return None
+        except Exception as e:
+            print(f"Error querying image: {e}")
+            return None
+    
+    def get_price_from_api(self, barcode: str):
+        """Get price from API endpoint."""
+        try:
+            url = f"{self.api_base_url}/api/prices/{barcode}"
+            response = requests.get(url, timeout=5)
+            
+            if response.status_code == 200:
+                price_doc = response.json()
+                price = price_doc.get('price', 0.0)
+                print(f"  Found price via API: ${price:.2f}")
+                return float(price), price_doc.get('product_name')
+            elif response.status_code == 404:
+                print(f"  No price found for barcode: {barcode}")
+                return 0.0, None
+            else:
+                print(f"  API error ({response.status_code}): {response.text}")
+                return 0.0, None
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching price from API: {e}")
+            return 0.0, None
+    
+    def check_item_exists_in_cart(self, barcode: str):
+        """Check if item with barcode already exists in cart and return quantity."""
+        try:
+            cart = self.manager.get_cart(self.sessionId)
+            if not cart or 'items' not in cart:
+                return 0
+            
+            # Count items with matching barcode
+            count = 0
+            for item in cart.get('items', []):
+                # Check if item has barcode field or if label matches
+                if item.get('barcode') == barcode:
+                    count += 1
+            
+            return count
+        except Exception as e:
+            print(f"Error checking cart: {e}")
+            return 0
+    
+    def add_item_to_firebase(self, label, image_path=None, image_url=None):
+        """
+        Add confirmed item to Firebase cart.
+        Queries image for barcode, gets price from API, and handles quantity updates.
+        """
+        barcode = None
+        price = 0.0
+        product_name = label.capitalize()
+        
+        # Query image for barcode if image path is provided
+        if image_path and os.path.exists(image_path):
+            barcode = self.get_barcode_from_image(image_path)
+            
+            # Get price and product name from API using barcode
+            if barcode:
+                price, api_product_name = self.get_price_from_api(barcode)
+                
+                # Use product name from API if available
+                if api_product_name:
+                    product_name = api_product_name
+        
+        # Add item to Firebase (will increment quantity if item already exists)
+        try:
+            item_id = self.manager.add_item(
+                session_id=self.sessionId,
+                label=label,
+                image_url=image_url,
+                price=price,
+                product_name=product_name,
+                confidence=1.0,
+                barcode=barcode
+            )
+            
+            # Get updated quantity from cart
+            quantity = 1
+            try:
+                cart = self.manager.get_cart(self.sessionId)
+                if cart and 'items' in cart:
+                    for item in cart.get('items', []):
+                        if barcode and item.get('barcode') == barcode:
+                            quantity = item.get('quantity', 1)
+                            break
+                        elif not barcode and item.get('label') == label:
+                            quantity = item.get('quantity', 1)
+                            break
+            except:
+                pass
+            
+            quantity_info = f" (quantity: {quantity})" if quantity > 1 else ""
+            barcode_info = f", barcode: {barcode}" if barcode else ""
+            price_info = f", price: ${price:.2f}" if price > 0 else ""
+            
+            print(f"✓ Item added to Firebase: {item_id} ({label}{barcode_info}{price_info}{quantity_info})")
+            return item_id
+        except Exception as e:
+            print(f"Error adding item to Firebase: {e}")
+            return None
     
     def remove_item_from_firebase(self, label, image_url=None):
-        """Remove item from Firebase cart."""
-        self.manager.remove_item(session_id=self.sessionId, label=label)
+        """Remove item from Firebase cart. Decrements quantity if item exists."""
+        # Try to find barcode from existing cart items for better matching
+        barcode = None
+        try:
+            cart = self.manager.get_cart(self.sessionId)
+            if cart and 'items' in cart:
+                for item in cart.get('items', []):
+                    if item.get('label') == label and item.get('barcode'):
+                        barcode = item.get('barcode')
+                        break
+        except:
+            pass
+        
+        self.manager.remove_item(session_id=self.sessionId, label=label, barcode=barcode)
 
 
     def run(self):

@@ -24,6 +24,7 @@ MANIFEST
 
 # Virtual Environments
 venv/
+clip-venv/
 env/
 ENV/
 env.bak/
@@ -164,3 +165,6 @@ coverage.xml
 config.local.py
 settings.local.py
 
+
+/backend/data_ compilation/products/price.json
+/backend/data_ compilation/convert_to_price_json.py
