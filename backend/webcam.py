@@ -485,8 +485,12 @@ class CartTrackerWebcam:
         """Release resources."""
         if self.cap is not None:
             self.cap.release()
-        if cv2.getWindowProperty("YOLOv8", cv2.WND_PROP_VISIBLE) >= 0:
-            cv2.destroyAllWindows()
+        try:
+            if cv2.getWindowProperty("YOLOv8", cv2.WND_PROP_VISIBLE) >= 0:
+                cv2.destroyAllWindows()
+        except cv2.error:
+            # Window doesn't exist, ignore
+            pass
         print(f"\nFinal cart contents: {self.confirmed}")
 
 
