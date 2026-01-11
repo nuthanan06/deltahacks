@@ -32,6 +32,7 @@ export function listenToCartItems(
           label: item.label,
           name: item.product_name,
           price: item.price,
+          quantity: item.quantity || 1,
           imageUrl: item.image_url,
           timestamp: item.timestamp,
           confidence: item.confidence,
@@ -74,6 +75,7 @@ export function listenToAllCarts(
             label: item.label,
             name: item.product_name,
             price: item.price,
+            quantity: item.quantity || 1,
             imageUrl: item.image_url,
             timestamp: item.timestamp,
             confidence: item.confidence,
@@ -121,6 +123,7 @@ export function listenToCart(
             label: item.label,
             name: item.product_name,
             price: item.price,
+            quantity: item.quantity || 1,
             imageUrl: item.image_url,
             timestamp: item.timestamp,
             confidence: item.confidence,
@@ -152,6 +155,7 @@ export interface CartItem {
   label: string;
   name: string;
   price: number;
+  quantity: number;
   imageUrl?: string;
   timestamp?: string;
   confidence?: number;
