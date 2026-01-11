@@ -7,6 +7,7 @@ ultralytics
 opencv-python
 firebase-admin
 requests
+stripe
 # For image similarity search (query.py)
 torch
 torchvision

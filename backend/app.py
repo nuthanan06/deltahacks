@@ -13,10 +13,15 @@ import cv2
 from webcam import CartTrackerWebcam 
 from firebase import FirebaseCartManager
 import certifi
+import stripe
+import os
 
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
+
+# Configure Stripe
+stripe.api_key = os.getenv('STRIPE_SECRET_KEY', 'sk_test_YOUR_SECRET_KEY')
 
 # Track active webcam threads by session_id
 active_webcams = {}
@@ -612,6 +617,43 @@ def receive_frame(session_id):
         print(f"Error receiving frame: {e}")
         import traceback
         traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# STRIPE PAYMENT API
+# ============================================================================
+
+@app.route("/api/create-payment-intent", methods=["POST"])
+def create_payment_intent():
+    """Create a Stripe payment intent for the checkout"""
+    try:
+        data = request.json
+        amount = data.get('amount')  # Amount in cents
+        session_id = data.get('session_id')
+        
+        if not amount or amount <= 0:
+            return jsonify({"error": "Invalid amount"}), 400
+        
+        # Create a PaymentIntent with the order amount and currency
+        intent = stripe.PaymentIntent.create(
+            amount=int(amount),
+            currency='usd',
+            automatic_payment_methods={
+                'enabled': True,
+            },
+            metadata={
+                'session_id': session_id,
+            }
+        )
+        
+        return jsonify({
+            'clientSecret': intent['client_secret'],
+            'paymentIntentId': intent['id']
+        }), 200
+        
+    except Exception as e:
+        print(f"Error creating payment intent: {e}")
         return jsonify({"error": str(e)}), 500
 
 

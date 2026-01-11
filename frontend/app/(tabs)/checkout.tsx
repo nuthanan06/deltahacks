@@ -1,6 +1,7 @@
-import { StyleSheet, TouchableOpacity, ScrollView, View, Alert } from 'react-native';
+import { StyleSheet, TouchableOpacity, ScrollView, View, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
+import { useStripe } from '@stripe/stripe-react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -25,6 +26,7 @@ import type { Cart } from '@/utilities/firebase-db';
  */
 export default function CheckoutScreen() {
   const router = useRouter();
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const {
     products,
     getSubtotal,
@@ -38,6 +40,7 @@ export default function CheckoutScreen() {
   // Get total price from Firebase
   const [firebaseCart, setFirebaseCart] = useState<Cart | null>(null);
   const [firebaseTotalPrice, setFirebaseTotalPrice] = useState<number>(0);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   useEffect(() => {
     if (!sessionId) {
@@ -84,79 +87,105 @@ export default function CheckoutScreen() {
   console.log('Checkout - Display Total:', displayTotal);
 
   /**
-   * Mock Stripe payment function
-   * 
-   * TODO: Replace with real Stripe integration:
-   * 1. Call backend API to create payment intent
-   * 2. Initialize Stripe Payment Sheet with payment intent
-   * 3. Present payment sheet to user
-   * 4. Handle payment confirmation
-   * 5. On success:
-   *    - Save order to Firebase
-   *    - Clear cart
-   *    - Navigate to success screen
-   * 6. On failure:
-   *    - Show error message
-   *    - Allow retry
+   * Stripe payment processing with Payment Sheet
    */
   const handlePayment = async () => {
+    if (isProcessingPayment) return;
+    
+    setIsProcessingPayment(true);
+    
     try {
-      console.warn('🔴 handlePayment: Starting payment process');
+      console.warn('🔴 handlePayment: Starting Stripe payment process');
       
-      // Call backend to stop webcam and mark session as completed
-      if (sessionId) {
-        try {
-          console.warn(`🟡 handlePayment: Calling checkout endpoint for sessionId: ${sessionId}`);
-          const checkoutUrl = `http://${LOCAL_IP}:5001/api/sessions/${sessionId}/checkout`;
-          console.warn(`🟡 handlePayment: URL: ${checkoutUrl}`);
-          
-          const response = await fetch(checkoutUrl, {
-            method: 'PUT',
-          });
-          console.warn(`🟡 handlePayment: Response status: ${response.status}`);
-          
-          const data = await response.json();
-          console.warn('✅ handlePayment: Session checkout complete, response:', data);
-        } catch (error) {
-          console.error('❌ handlePayment: Error calling checkout endpoint:', error);
-        }
-      } else {
-        console.warn('⚠️ handlePayment: No sessionId available');
+      // Calculate amount in cents
+      const amountInCents = Math.round(displayTotal * 100);
+      
+      // Create payment intent on backend
+      const paymentIntentResponse = await fetch(`http://${LOCAL_IP}:5001/api/create-payment-intent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: amountInCents,
+          session_id: sessionId,
+        }),
+      });
+      
+      if (!paymentIntentResponse.ok) {
+        throw new Error('Failed to create payment intent');
       }
       
-      // Mock payment processing delay
+      const { clientSecret, paymentIntentId } = await paymentIntentResponse.json() as { 
+        clientSecret: string; 
+        paymentIntentId: string; 
+      };
+      console.log('Payment intent created:', paymentIntentId);
+      
+      // Initialize Stripe Payment Sheet
+      const { error: initError } = await initPaymentSheet({
+        paymentIntentClientSecret: clientSecret,
+        merchantDisplayName: 'DeltaHacks Store',
+        returnURL: 'deltahacks://payment-success',
+      });
+      
+      if (initError) {
+        console.error('Payment sheet init error:', initError);
+        Alert.alert('Error', initError.message);
+        setIsProcessingPayment(false);
+        return;
+      }
+      
+      // Present the Payment Sheet
+      const { error: presentError } = await presentPaymentSheet();
+      
+      if (presentError) {
+        console.error('Payment sheet present error:', presentError);
+        Alert.alert('Payment Canceled', presentError.message);
+        setIsProcessingPayment(false);
+        return;
+      }
+      
+      // Payment successful!
+      await processPaymentSuccess();
+      
+    } catch (error) {
+      console.error('❌ handlePayment: Error:', error);
+      setIsProcessingPayment(false);
+      Alert.alert('Payment Error', 'Failed to process payment. Please try again.');
+    }
+  };
+  
+  const processPaymentSuccess = async () => {
+    try {
+      // Call backend to stop webcam and mark session as completed
+      if (sessionId) {
+        const checkoutUrl = `http://${LOCAL_IP}:5001/api/sessions/${sessionId}/checkout`;
+        const response = await fetch(checkoutUrl, { method: 'PUT' });
+        if (response.ok) {
+          console.warn('✅ Session checkout complete');
+        }
+      }
+      
+      // Show success and navigate
       Alert.alert(
-        'Processing Payment',
-        'This is a placeholder. Real Stripe integration will be added here.',
+        'Payment Successful!',
+        `Your order of ${formatPrice(displayTotal)} has been processed.`,
         [
           {
-            text: 'Simulate Success',
+            text: 'OK',
             onPress: () => {
-              // Mock successful payment
-              Alert.alert(
-                'Payment Successful!',
-                `Your order total of ${formatPrice(getTotal())} has been processed.`,
-                [
-                  {
-                    text: 'OK',
-                    onPress: () => {
-                      clearCart();
-                      setSessionId(null); // Clear session ID
-                      router.push("/(tabs)"); // Navigate back to scan area
-                    },
-                  },
-                ]
-              );
+              clearCart();
+              setSessionId(null);
+              setIsProcessingPayment(false);
+              router.push("/(tabs)");
             },
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel',
           },
         ]
       );
     } catch (error) {
-      Alert.alert('Payment Error', 'An error occurred during payment processing.');
+      console.error('Error:', error);
+      setIsProcessingPayment(false);
     }
   };
 
@@ -231,12 +260,17 @@ export default function CheckoutScreen() {
 
       <View style={styles.footer}>
         <TouchableOpacity
-          style={styles.paymentButton}
+          style={[styles.paymentButton, isProcessingPayment && styles.paymentButtonDisabled]}
           onPress={handlePayment}
+          disabled={isProcessingPayment}
           activeOpacity={0.7}>
-          <ThemedText style={styles.paymentButtonText}>
-            Proceed with Payment
-          </ThemedText>
+          {isProcessingPayment ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <ThemedText style={styles.paymentButtonText}>
+              Proceed with Payment
+            </ThemedText>
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -328,6 +362,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     backgroundColor: '#eda70e',
+  },
+  paymentButtonDisabled: {
+    opacity: 0.6,
   },
   paymentButtonText: {
     color: '#fff',

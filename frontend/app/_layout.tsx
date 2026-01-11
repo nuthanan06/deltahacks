@@ -3,10 +3,13 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
+import { StripeProvider } from '@stripe/stripe-react-native';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { CartProvider } from '@/contexts/CartContext';
 import { playTestSound } from '@/utilities/sounds';
+
+const STRIPE_PUBLISHABLE_KEY = 'pk_test_51SnSBdPEKM5aIKrc9DYxvLZCQ3GEOdyRF2ORR1oBJwnVpRzrOMyTM1vleN7SDsf7pnpqI6fm8QEl3mabuCq9g0DI00c1YVMEwT';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -26,14 +29,16 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <CartProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        </Stack>
-        <StatusBar style="auto" />
-      </ThemeProvider>
-    </CartProvider>
+    <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+      <CartProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+          </Stack>
+          <StatusBar style="auto" />
+        </ThemeProvider>
+      </CartProvider>
+    </StripeProvider>
   );
 }
