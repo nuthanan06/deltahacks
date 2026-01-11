@@ -319,7 +319,7 @@ export default function QRCodeScreen() {
               <ThemedText style={styles.buttonText}>Generating...</ThemedText>
             </>
           ) : (
-            <ThemedText style={styles.buttonText}>I'm a cart</ThemedText>
+            <ThemedText style={styles.buttonText}>I&apos;m a cart</ThemedText>
           )}
         </TouchableOpacity>
 
@@ -327,7 +327,7 @@ export default function QRCodeScreen() {
           style={[styles.button, styles.phoneButton]}
           onPress={handleImAPhone}
           activeOpacity={0.7}>
-          <ThemedText style={styles.buttonText}>I'm a phone</ThemedText>
+          <ThemedText style={styles.buttonText}>I&apos;m a phone</ThemedText>
         </TouchableOpacity>
       </ThemedView>
 

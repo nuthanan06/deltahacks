@@ -48,7 +48,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         throw new Error(`Failed to fetch cart items: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data = await response.json() as { items?: any[] };
       const items = data.items || [];
 
       // Transform Firebase items to Product format
