@@ -32,8 +32,19 @@ export default function CheckoutScreen() {
   } = useCart();
 
   const formatPrice = (price: number) => {
+    console.log('formatPrice called with:', price);
+    if (isNaN(price) || price === null || price === undefined) {
+      console.warn('Invalid price value:', price);
+      return '$0.00';
+    }
     return `$${price.toFixed(2)}`;
   };
+
+  // Debug: Log cart state
+  console.log('Checkout - Products:', products);
+  console.log('Checkout - Subtotal:', getSubtotal());
+  console.log('Checkout - Tax:', getTax());
+  console.log('Checkout - Total:', getTotal());
 
   /**
    * Mock Stripe payment function
@@ -130,19 +141,26 @@ export default function CheckoutScreen() {
             Order Summary
           </ThemedText>
 
-          {products.map((product) => (
-            <View key={product.id} style={styles.orderItem}>
-              <View style={styles.orderItemInfo}>
-                <ThemedText type="defaultSemiBold">{product.name}</ThemedText>
-                <ThemedText style={styles.orderItemQuantity}>
-                  Qty: {product.quantity} × {formatPrice(product.price)}
-                </ThemedText>
-              </View>
-              <ThemedText type="defaultSemiBold">
-                {formatPrice(product.price * product.quantity)}
-              </ThemedText>
-            </View>
-          ))}
+          {products.length === 0 ? (
+            <ThemedText style={styles.emptyText}>No items in cart</ThemedText>
+          ) : (
+            products.map((product) => {
+              console.log('Checkout product:', product.name, 'price:', product.price, 'quantity:', product.quantity);
+              return (
+                <View key={product.id} style={styles.orderItem}>
+                  <View style={styles.orderItemInfo}>
+                    <ThemedText type="defaultSemiBold">{product.name}</ThemedText>
+                    <ThemedText style={styles.orderItemQuantity}>
+                      Qty: {product.quantity} × {formatPrice(product.price)}
+                    </ThemedText>
+                  </View>
+                  <ThemedText type="defaultSemiBold">
+                    {formatPrice(product.price * product.quantity)}
+                  </ThemedText>
+                </View>
+              );
+            })
+          )}
         </View>
 
         <View style={styles.section}>
@@ -277,6 +295,12 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
+  },
+  emptyText: {
+    textAlign: 'center',
+    fontSize: 16,
+    opacity: 0.6,
+    padding: 20,
   },
 });
 

@@ -79,10 +79,13 @@ export default function ProductsScreen() {
           ? `${item.label || item.name}_${item.barcode}` 
           : `${item.label || item.name}_${item.item_id || Date.now()}`;
         
+        const price = typeof item.price === 'number' ? item.price : (parseFloat(item.price) || 0);
+        console.log(`Product mapping: ${item.product_name || item.label} - price from Firebase: ${item.price}, parsed: ${price}`);
+        
         return {
           id: stableId,
           name: item.product_name || item.name || item.label || 'Unknown Product',
-          price: item.price || 0,
+          price: price,
           quantity: item.quantity || 1, // Use the quantity field from Firebase
         };
       });
