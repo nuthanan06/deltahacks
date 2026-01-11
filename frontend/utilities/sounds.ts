@@ -114,7 +114,7 @@ export async function playIncreaseSound() {
 export async function playDecreaseSound() {
   try {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await playBeep(400); // Lower frequency
+    await playBeep(250); // Lower frequency (lowered from 400Hz for deeper sound)
   } catch (error) {
     console.error('Error playing decrease sound:', error);
   }

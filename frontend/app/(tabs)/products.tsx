@@ -105,7 +105,7 @@ export default function ProductsScreen() {
             soundPlayed = true;
             console.log(`🔊🔊🔊 Backend triggered INCREASE sound for ${item.product_name || item.label}: quantity = ${item.quantity}`);
           } else if (item.sound_trigger === 'decrease') {
-            playBeep(400); // Lower pitch
+            playBeep(250); // Lower pitch (lowered from 400Hz)
             soundPlayed = true;
             console.log(`🔊🔊🔊 Backend triggered DECREASE sound for ${item.product_name || item.label}: quantity = ${item.quantity || 0}`);
           }
@@ -126,7 +126,7 @@ export default function ProductsScreen() {
               console.log(`🔊🔊🔊 Frontend detected quantity increase for ${product.name}: ${prevQuantity} -> ${currentQuantity}`);
             } else if (currentQuantity < prevQuantity && prevQuantity > 0) {
               // Quantity decreased
-              playBeep(400); // Lower pitch
+              playBeep(250); // Lower pitch (lowered from 400Hz)
               console.log(`🔊🔊🔊 Frontend detected quantity decrease for ${product.name}: ${prevQuantity} -> ${currentQuantity}`);
             }
           }
