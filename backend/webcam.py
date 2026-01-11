@@ -68,6 +68,9 @@ class CartTrackerWebcam:
             "bottle", "cup", "bowl", "book"
         }
         
+        # Labels to exclude (humans and body parts)
+        self.EXCLUDED_LABELS = {"person", "people", "human", "man", "woman", "child", "face", "hand"}
+        
         # State tracking
         self.frame_counts = defaultdict(int)
         self.confirmed = []
@@ -146,7 +149,8 @@ class CartTrackerWebcam:
         for box in r.boxes:
             label = r.names[int(box.cls[0])]
             
-            if label not in self.APPROVED_LABELS:
+            # Exclude human-related labels instead of only allowing specific labels
+            if label in self.EXCLUDED_LABELS:
                 continue
             
             # bounding box coords
